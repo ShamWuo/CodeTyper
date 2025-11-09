@@ -8,11 +8,16 @@
   --text: #e2e8f0;
   --muted: #94a3b8;
   --stage-bg: rgba(171, 184, 195, 1);
-  --code-bg: #292a2b;
-  --code-border: rgba(255, 255, 255, 0.14);
-  --code-text: #e6edf7;
-  --code-subtle: #6c7086;
-  --accent-cursor: #ff9ac1;
+  --code-bg: #1f1f22;
+  --code-border: rgba(255, 255, 255, 0.12);
+  --code-text: #f2f4f8;
+  --code-comment: #61697a;
+  --code-accent: #f6b979;
+  --code-keyword: #f46fd6;
+  --code-string: #4ff4ec;
+  --code-property: #5ff0cf;
+  --code-meta: #8f72ff;
+  --accent-cursor: #f46fd6;
   --font-code: "Hack", "Fira Code", "Source Code Pro", Consolas, monospace;
   --shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
 }
@@ -221,10 +226,11 @@ button:disabled {
   font-size: 14px;
   line-height: 1.33;
   color: var(--code-text);
-  overflow: auto;
+  overflow: hidden;
   min-height: 260px;
-  max-height: 480px;
+  max-height: none;
   background: transparent;
+  position: relative;
 }
 
 .code-content,
@@ -234,17 +240,125 @@ button:disabled {
   color: inherit;
 }
 
+.code-content {
+  min-height: 100%;
+}
+
+.code-buffer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+  white-space: pre-wrap;
+  font: inherit;
+}
+
 .typed-cursor {
   color: var(--accent-cursor);
   font-size: 1rem;
 }
 
-.code-content {
-  color: var(--code-text);
+.typed-cursor.proxy {
+  display: inline-block;
+  margin-left: -2px;
+  animation: blink 1s step-start infinite;
+}
+
+.code-stage .typed-cursor:not(.proxy) {
+  display: none;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .code-stage .code-content::selection {
   background: rgba(255, 154, 193, 0.4);
+}
+
+.code-stage .code-display::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.code-stage .code-display::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+.code-stage .code-display::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hljs {
+  color: var(--code-text);
+  background: transparent !important;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--code-comment);
+}
+
+.hljs-keyword,
+.hljs-built_in,
+.hljs-selector-tag,
+.hljs-type,
+.hljs-symbol {
+  color: var(--code-keyword);
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-attribute,
+.hljs-selector-attr,
+.hljs-selector-pseudo {
+  color: var(--code-string);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params,
+.hljs-title.class_.hljs,
+.hljs-title.function_ {
+  color: var(--code-accent);
+}
+
+.hljs-property,
+.hljs-tag,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-doctag,
+.hljs-meta .hljs-string {
+  color: var(--code-property);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-meta .hljs-title {
+  color: var(--code-meta);
+}
+
+.hljs-name,
+.hljs-title,
+.hljs-section {
+  color: var(--code-text);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
 }
 
 .capture-stage {
