@@ -216,14 +216,26 @@
     'hljs-quote': theme.commentColor,
     'hljs-keyword': theme.keywordColor,
     'hljs-selector-tag': theme.keywordColor,
+    'hljs-selector-id': theme.constantColor || theme.keywordColor,
+    'hljs-selector-class': theme.attributeColor || theme.variableColor,
+    'hljs-selector-attr': theme.attributeColor || theme.keywordColor,
+    'hljs-selector-pseudo': theme.keywordColor || theme.metaColor,
     'hljs-built_in': theme.variableBuiltinColor || theme.keywordColor,
-  'hljs-built_in.hljs-color': theme.colorLiteralColor || theme.variableBuiltinColor || theme.keywordColor,
-  'hljs-literal': theme.booleanColor || theme.numberColor,
-  'hljs-literal.boolean-literal': theme.booleanColor || theme.numberColor,
-  'hljs-literal.special-literal': theme.constantColor || theme.numberColor,
+    'hljs-built_in.hljs-color': theme.colorLiteralColor || theme.variableBuiltinColor || theme.keywordColor,
+    'hljs-tag': theme.metaColor || theme.keywordColor,
+    'hljs-name': theme.propertyColor || theme.keywordColor,
+    'hljs-attr': theme.attributeColor,
+    'hljs-attribute': theme.attributeColor,
+    'hljs-attribute .hljs-name': theme.attributeColor,
+    'hljs-attr-name': theme.attributeColor,
+    'hljs-literal': theme.booleanColor || theme.numberColor,
+    'hljs-literal.boolean-literal': theme.booleanColor || theme.numberColor,
+    'hljs-literal.special-literal': theme.constantColor || theme.numberColor,
     'hljs-number': theme.numberColor,
     'hljs-variable': theme.variableColor,
     'hljs-template-variable': theme.variableColor,
+    'hljs-template-variable.infix': theme.variableBuiltinColor || theme.variableColor,
+    'hljs-template-tag': theme.metaColor || theme.keywordColor,
     'hljs-params': theme.variableColor,
     'hljs-variable.language_': theme.variableBuiltinColor || theme.variableColor,
     'hljs-variable.global_': theme.variableBuiltinColor || theme.variableColor,
@@ -233,20 +245,28 @@
     'hljs-title': theme.functionColor,
     'hljs-title.function_': theme.functionColor,
     'hljs-title.class_': theme.functionColor,
+    'hljs-title.class_.inherited__': theme.constantColor || theme.functionColor,
     'hljs-function': theme.functionColor,
-    'hljs-attr': theme.attributeColor,
-    'hljs-attribute': theme.attributeColor,
-    'hljs-attribute .hljs-name': theme.attributeColor,
     'hljs-string': theme.stringColor,
+    'hljs-string .hljs-subst': theme.variableBuiltinColor || theme.stringColor,
     'hljs-symbol': theme.propertyColor,
     'hljs-property': theme.propertyColor,
+    'hljs-class': theme.propertyColor,
     'hljs-operator': theme.operatorColor,
     'hljs-punctuation': theme.operatorColor,
+    'hljs-regexp': theme.metaColor || theme.stringColor,
+    'hljs-link': theme.metaColor || theme.stringColor,
+    'hljs-meta-keyword': theme.metaColor || theme.keywordColor,
     'hljs-hexcolor': theme.colorLiteralColor || theme.numberColor,
     'hljs-color': theme.colorLiteralColor || theme.numberColor,
     'hljs-meta': theme.metaColor,
     'hljs-meta .hljs-keyword': theme.metaColor,
     'hljs-meta .hljs-string': theme.stringColor,
+    'hljs-doctag': theme.metaColor || theme.keywordColor,
+    'hljs-subst': theme.variableBuiltinColor || theme.variableColor,
+    'hljs-bullet': theme.constantColor || theme.metaColor,
+    'hljs-emphasis': theme.stringColor,
+    'hljs-strong': theme.keywordColor,
   });
 
   let highlightColorMap = buildHighlightMap(STAGE_THEME);
@@ -372,8 +392,8 @@
     root.style.setProperty('--code-operator', STAGE_THEME.operatorColor || STAGE_THEME.textColor);
     root.style.setProperty('--code-attribute', STAGE_THEME.attributeColor || STAGE_THEME.stringColor);
     root.style.setProperty('--code-constant', STAGE_THEME.constantColor || STAGE_THEME.numberColor);
-  root.style.setProperty('--code-boolean', STAGE_THEME.booleanColor || STAGE_THEME.numberColor);
-  root.style.setProperty('--code-color', STAGE_THEME.colorLiteralColor || STAGE_THEME.stringColor);
+    root.style.setProperty('--code-boolean', STAGE_THEME.booleanColor || STAGE_THEME.numberColor);
+    root.style.setProperty('--code-color', STAGE_THEME.colorLiteralColor || STAGE_THEME.stringColor);
     root.style.setProperty('--accent-cursor', STAGE_THEME.cursorColor);
     root.style.setProperty('--stage-width', `${stageWidth}px`);
     root.style.setProperty('--code-min-height', `${stageMinHeight}px`);
@@ -546,6 +566,14 @@
       bufferTarget.textContent = '';
       renderBuffer('');
       didTrim = true;
+    }
+
+    if (didTrim) {
+      const finalBuffer = bufferTarget.textContent || '';
+      const removedChars = (originalBuffer || '').length - finalBuffer.length;
+      if (removedChars > 0) {
+        queueTypedFrontTrim(removedChars);
+      }
     }
 
     isResettingHeight = false;
@@ -816,17 +844,17 @@
     }
 
     const effectiveLines = lines.length ? lines : [[]];
-  const textLines = effectiveLines.map((fragments) => fragments.length ? fragments : [{ text: ' ', color: STAGE_THEME.textColor }]);
+    const textLines = effectiveLines.map((fragments) => (fragments.length ? fragments : [{ text: ' ', color: STAGE_THEME.textColor }]));
 
-  const combinedInset = (STAGE_THEME.paddingX + STAGE_THEME.innerPadding) * 2;
-  const minimumFrameWidth = combinedInset + 40;
-  const frameWidth = Math.max(STAGE_THEME.width, minimumFrameWidth);
-  const textStartX = STAGE_THEME.paddingX + STAGE_THEME.innerPadding;
-  const textStartY = STAGE_THEME.paddingY + STAGE_THEME.topBarHeight + STAGE_THEME.innerPadding;
-  const textAreaWidth = Math.max(40, frameWidth - combinedInset);
+    const combinedInset = (STAGE_THEME.paddingX + STAGE_THEME.innerPadding) * 2;
+    const minimumFrameWidth = combinedInset + 40;
+    const frameWidth = Math.max(STAGE_THEME.width, minimumFrameWidth);
+    const textStartX = STAGE_THEME.paddingX + STAGE_THEME.innerPadding;
+    const textStartY = STAGE_THEME.paddingY + STAGE_THEME.topBarHeight + STAGE_THEME.innerPadding;
+    const textAreaWidth = Math.max(40, frameWidth - combinedInset);
     const totalTextHeight = textLines.length * STAGE_THEME.lineHeight;
-  const contentHeight = Math.max(totalTextHeight, STAGE_THEME.minCodeHeight);
-  const frameHeight = STAGE_THEME.innerPadding * 2 + contentHeight;
+    const contentHeight = Math.max(totalTextHeight, STAGE_THEME.minCodeHeight);
+    const frameHeight = STAGE_THEME.innerPadding * 2 + contentHeight;
     const totalHeight = STAGE_THEME.paddingY * 2 + STAGE_THEME.topBarHeight + frameHeight;
 
     canvas.width = Math.round(frameWidth * scale);
@@ -856,7 +884,7 @@
     ctx.restore();
 
     // Window controls
-  const dotsY = STAGE_THEME.paddingY + STAGE_THEME.topBarHeight / 2 + 8;
+    const dotsY = STAGE_THEME.paddingY + STAGE_THEME.topBarHeight / 2 + 8;
     const dotXStart = STAGE_THEME.paddingX + STAGE_THEME.dotOffset;
     const dotColors = ['#ff5f56', '#ffbd2e', '#27c93f'];
     dotColors.forEach((color, index) => {
@@ -925,6 +953,7 @@ greet('Creator');`;
 
   const destroyTyped = () => {
     if (typedInstance) {
+      typedInstance._queuedFrontTrim = 0;
       typedInstance.destroy();
       typedInstance = null;
     }
@@ -945,7 +974,7 @@ greet('Creator');`;
     }
 
     if (/^<[a-z!]/i.test(trimmed) && />/.test(trimmed)) {
-      return 'xml';
+      return 'html';
     }
 
     if (/\b(import|export|from|class|interface|type)\b/.test(trimmed) && /:\s*\w+/.test(trimmed)) {
@@ -961,6 +990,134 @@ greet('Creator');`;
     }
 
     return 'javascript';
+  };
+
+  const WAIT_DIRECTIVE_PATTERN = /^\s*Tpyr\.wait\(\s*([0-9]+(?:\.[0-9]+)?)?\s*(?:,?\s*(?:['\"])?(ms|s)(?:['\"])?\s*)?\)\s*;?(?:\s*\/\/.*)?$/i;
+  const DEFAULT_WAIT_SECONDS = 1;
+
+  const applyWaitDirectivesToPlayback = (code) => {
+    if (!code) {
+      return code;
+    }
+
+    const lines = code.split('\n');
+    let didMutate = false;
+
+    const processed = lines.map((line) => {
+      const match = WAIT_DIRECTIVE_PATTERN.exec(line);
+      if (!match) {
+        return line;
+      }
+
+      const rawValue = match[1];
+      const unit = (match[2] || 's').toLowerCase();
+      const parsed = rawValue === undefined || rawValue === null || rawValue === ''
+        ? DEFAULT_WAIT_SECONDS
+        : Number.parseFloat(rawValue);
+
+      if (!Number.isFinite(parsed)) {
+        return line;
+      }
+
+      const durationMs = unit === 'ms'
+        ? Math.max(0, Math.round(parsed))
+        : Math.max(0, Math.round(parsed * 1000));
+
+      if (durationMs <= 0) {
+        return line;
+      }
+
+      didMutate = true;
+      return `${line}^${durationMs}`;
+    });
+
+    return didMutate ? processed.join('\n') : code;
+  };
+
+  let typedTrimPatchApplied = false;
+
+  const ensureTypedTrimPatch = () => {
+    if (typedTrimPatchApplied) {
+      return;
+    }
+
+    if (typeof Typed === 'undefined' || !Typed || !Typed.prototype || typeof Typed.prototype.keepTyping !== 'function') {
+      return;
+    }
+
+    const consumeFrontTrim = function consumeFrontTrim(currentString, nextIndex) {
+      const queue = Number(this._queuedFrontTrim) || 0;
+      if (!queue || !currentString) {
+        return {
+          string: currentString,
+          index: nextIndex,
+        };
+      }
+
+      const trimAmount = Math.min(queue, Math.max(0, nextIndex));
+      if (trimAmount <= 0) {
+        return {
+          string: currentString,
+          index: nextIndex,
+        };
+      }
+
+      const trimmedString = currentString.substring(trimAmount);
+      const trimmedIndex = Math.max(0, nextIndex - trimAmount);
+
+      this._queuedFrontTrim = Math.max(0, queue - trimAmount);
+
+      if (this.pause && typeof this.pause.curString === 'string') {
+        const pauseTrim = Math.min(trimAmount, this.pause.curString.length);
+        this.pause.curString = this.pause.curString.substring(pauseTrim);
+        this.pause.curStrPos = Math.max(0, (this.pause.curStrPos || 0) - pauseTrim);
+      }
+
+      return {
+        string: trimmedString,
+        index: trimmedIndex,
+      };
+    };
+
+    Typed.prototype._consumeFrontTrim = consumeFrontTrim;
+
+    const patchedKeepTyping = function patchedKeepTyping(currentString, indexBeforeStep, step) {
+      const effectiveStep = Number.isFinite(step) ? step : 0;
+      if (indexBeforeStep === 0) {
+        this.toggleBlinking(!1);
+        this.options.preStringTyped(this.arrayPos, this);
+      }
+
+      const incrementedIndex = indexBeforeStep + effectiveStep;
+      const consumed = this._consumeFrontTrim
+        ? this._consumeFrontTrim(currentString, incrementedIndex)
+        : {
+            string: currentString,
+            index: incrementedIndex,
+          };
+
+      const safeString = typeof consumed.string === 'string' ? consumed.string : '';
+      const safeIndex = Math.max(0, Number.isFinite(consumed.index) ? consumed.index : incrementedIndex);
+      const output = safeString.substring(0, safeIndex);
+
+      this.replaceText(output);
+      this.typewrite(safeString, safeIndex);
+    };
+
+    Typed.prototype.keepTyping = patchedKeepTyping;
+
+    typedTrimPatchApplied = true;
+  };
+
+  const queueTypedFrontTrim = (amount) => {
+    if (!typedInstance) {
+      return;
+    }
+    const numeric = Number(amount);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return;
+    }
+    typedInstance._queuedFrontTrim = (Number(typedInstance._queuedFrontTrim) || 0) + Math.floor(numeric);
   };
 
   const highlightCode = (code) => {
@@ -1010,8 +1167,12 @@ greet('Creator');`;
     bufferTarget.textContent = '';
     applyHighlight();
 
+    const playbackContent = applyWaitDirectivesToPlayback(content);
+
+    ensureTypedTrimPatch();
+
     typedInstance = new Typed('#typed-buffer', {
-      strings: [content],
+      strings: [playbackContent],
       typeSpeed: Number(speedSlider.value),
       backSpeed: 0,
       startDelay: 350,
@@ -1026,6 +1187,10 @@ greet('Creator');`;
       onTypingResumed: () => applyHighlight(),
       onComplete: () => applyHighlight(),
     });
+
+    if (typedInstance) {
+      typedInstance._queuedFrontTrim = 0;
+    }
 
     observer.disconnect();
     observer.observe(bufferTarget, {

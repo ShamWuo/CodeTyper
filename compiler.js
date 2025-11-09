@@ -9,11 +9,17 @@
   const gifDurationSlider = document.getElementById('gif-duration');
   const gifDurationInput = document.getElementById('gif-duration-input');
   const gifDurationValue = document.getElementById('gif-duration-value');
+  const gifFpsSlider = document.getElementById('gif-fps');
+  const gifFpsInput = document.getElementById('gif-fps-input');
+  const gifFpsValue = document.getElementById('gif-fps-value');
 
   const PLACEHOLDER = `<!-- Sample landing section -->\n<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8" />\n  <title>Hello World</title>\n  <style>\n    body {\n      margin: 0;\n      font-family: "Inter", sans-serif;\n      background: radial-gradient(circle at 20% 15%, #38bdf8 0%, transparent 40%),\n        radial-gradient(circle at 80% 0%, #a855f7 0%, transparent 35%),\n        #0f172a;\n      color: #e2e8f0;\n      display: flex;\n      align-items: center;\n      justify-content: center;\n      min-height: 100vh;\n    }\n    .card {\n      background: rgba(15, 23, 42, 0.65);\n      border: 1px solid rgba(148, 163, 184, 0.35);\n      border-radius: 24px;\n      padding: 36px 44px;\n      box-shadow: 0 18px 48px rgba(15, 23, 42, 0.6);\n      max-width: 460px;\n      text-align: center;\n    }\n    .card h1 {\n      margin: 0 0 18px;\n      font-size: 2.25rem;\n    }\n    .card p {\n      margin: 0 0 28px;\n      color: #b3c0d1;\n      line-height: 1.6;\n    }\n    .card button {\n      border: none;\n      border-radius: 999px;\n      padding: 12px 28px;\n      background: linear-gradient(135deg, #38bdf8, #a855f7);\n      color: #0b1120;\n      font-size: 0.95rem;\n      font-weight: 600;\n      cursor: pointer;\n      box-shadow: 0 12px 22px rgba(56, 189, 248, 0.35);\n    }\n  </style>\n</head>\n<body>\n  <div class="card">\n    <h1>Launch faster</h1>\n    <p>Build rich mockups, export code snippets, and share your prototypes effortlessly.</p>\n    <button>Get Started</button>\n  </div>\n</body>\n</html>`;
 
   const GIF_WORKER = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js';
   const DEFAULT_GIF_DURATION = 3000;
+  const DEFAULT_GIF_FPS = 60;
+  const MAX_ALLOWED_FPS = 60;
+  const MIN_ALLOWED_FPS = 5;
 
   const THEMES = {
     panda: {
@@ -189,7 +195,15 @@
   let isExporting = false;
   let activeDownloadUrl = null;
   let gifDuration = DEFAULT_GIF_DURATION;
+  let gifFps = DEFAULT_GIF_FPS;
   let previewReady = Promise.resolve();
+  let ensureHtml2CanvasPromise = null;
+
+  const MAX_CAPTURE_FRAMES = 600;
+  const MIN_FRAME_DELAY = 5;
+  const MIN_WAIT_SLICE = 4;
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 
   const setStatus = (message = '') => {
     if (statusLabel) {
@@ -312,6 +326,33 @@
     updateGifDurationUI();
   };
 
+  const updateGifFpsUI = () => {
+    if (gifFpsSlider && Number(gifFpsSlider.value) !== gifFps) {
+      gifFpsSlider.value = String(gifFps);
+    }
+    if (gifFpsInput && Number(gifFpsInput.value) !== gifFps) {
+      gifFpsInput.value = String(gifFps);
+    }
+    if (gifFpsValue) {
+      gifFpsValue.textContent = `${gifFps} fps`;
+    }
+  };
+
+  const applyGifFps = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      updateGifFpsUI();
+      return;
+    }
+
+    const min = Number(gifFpsSlider ? gifFpsSlider.min : MIN_ALLOWED_FPS) || MIN_ALLOWED_FPS;
+    const max = Number(gifFpsSlider ? gifFpsSlider.max : MAX_ALLOWED_FPS) || MAX_ALLOWED_FPS;
+    const clamped = Math.min(max, Math.max(min, Math.round(numeric)));
+
+    gifFps = clamped;
+    updateGifFpsUI();
+  };
+
   const toggleControls = (disabled) => {
     [compileButton, resetButton, exportButton, themeSelect].forEach((el) => {
       if (el) {
@@ -324,6 +365,12 @@
     }
     if (gifDurationInput) {
       gifDurationInput.disabled = disabled;
+    }
+    if (gifFpsSlider) {
+      gifFpsSlider.disabled = disabled;
+    }
+    if (gifFpsInput) {
+      gifFpsInput.disabled = disabled;
     }
     if (textarea) {
       textarea.readOnly = disabled;
@@ -369,12 +416,43 @@
     return STAGE_THEME.frameBackground;
   };
 
-  const capturePreviewCanvas = async () => {
+  const ensureHtml2Canvas = () => {
+    if (typeof window.html2canvas === 'function') {
+      return Promise.resolve(window.html2canvas);
+    }
+
+    if (ensureHtml2CanvasPromise) {
+      return ensureHtml2CanvasPromise;
+    }
+
+    ensureHtml2CanvasPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      script.crossOrigin = 'anonymous';
+      script.referrerPolicy = 'no-referrer';
+      script.async = true;
+      script.onload = () => {
+        if (typeof window.html2canvas === 'function') {
+          resolve(window.html2canvas);
+        } else {
+          reject(new Error('html2canvas failed to initialize.'));
+        }
+      };
+      script.onerror = () => {
+        reject(new Error('html2canvas failed to load.'));
+      };
+      document.head.appendChild(script);
+    }).catch((error) => {
+      ensureHtml2CanvasPromise = null;
+      throw error;
+    });
+
+    return ensureHtml2CanvasPromise;
+  };
+
+  const capturePreviewCanvas = async (html2canvasInstance) => {
     if (!previewFrame || !previewFrame.contentDocument) {
       throw new Error('Preview is not ready.');
-    }
-    if (typeof window.html2canvas !== 'function') {
-      throw new Error('Preview capture library is unavailable.');
     }
 
     const bounds = previewFrame.getBoundingClientRect();
@@ -389,7 +467,7 @@
     const backgroundColor = getPreviewBackgroundColor();
 
     // Capture the iframe document at the visible size so the GIF mirrors the preview surface.
-    return window.html2canvas(previewFrame.contentDocument.documentElement, {
+    return html2canvasInstance(previewFrame.contentDocument.documentElement, {
       backgroundColor,
       useCORS: true,
       logging: false,
@@ -400,6 +478,39 @@
       scrollX: 0,
       scrollY: 0,
     });
+  };
+
+  const capturePreviewSequence = async (html2canvasInstance, totalDuration, fps, onProgress) => {
+    const normalizedFps = Math.max(1, Math.min(Number(fps) || DEFAULT_GIF_FPS, MAX_ALLOWED_FPS));
+    const frameDelay = Math.max(MIN_FRAME_DELAY, Math.round(1000 / normalizedFps));
+    const safeDuration = Math.max(frameDelay * 2, Number(totalDuration) || DEFAULT_GIF_DURATION);
+    const estimatedFrames = Math.min(
+      MAX_CAPTURE_FRAMES,
+      Math.max(2, Math.round(safeDuration / frameDelay)),
+    );
+
+    const frames = [];
+    const startTime = performance.now();
+
+    for (let index = 0; index < estimatedFrames; index += 1) {
+      if (typeof onProgress === 'function') {
+        onProgress(index + 1, estimatedFrames);
+      }
+
+      const canvas = await capturePreviewCanvas(html2canvasInstance);
+      frames.push(canvas);
+
+      if (index < estimatedFrames - 1) {
+        const targetNextCapture = startTime + frameDelay * (index + 1);
+        const waitTime = targetNextCapture - performance.now();
+        await sleep(waitTime > MIN_WAIT_SLICE ? waitTime : MIN_WAIT_SLICE);
+      }
+    }
+
+    return {
+      frames,
+      frameDelay,
+    };
   };
 
   const exportToGif = async () => {
@@ -421,19 +532,48 @@
       await waitForPreview;
 
       const workerScript = await getWorkerScriptURL();
-      const canvas = await capturePreviewCanvas();
+      let html2canvasInstance;
+      try {
+        html2canvasInstance = await ensureHtml2Canvas();
+      } catch (error) {
+        throw new Error('The preview capture library could not be loaded. Check your connection and try again.');
+      }
 
+      setStatus(`Capturing preview at ${gifFps} fps…`);
+      const sequence = await capturePreviewSequence(
+        html2canvasInstance,
+        gifDuration,
+        gifFps,
+        (current, total) => {
+          const percent = Math.round((current / total) * 100);
+          setStatus(`Capturing preview at ${gifFps} fps… ${percent}% (${current}/${total})`);
+        },
+      );
+
+      const firstCanvas = sequence.frames[0];
+      if (!firstCanvas) {
+        throw new Error('No frames captured from the preview.');
+      }
+
+      setStatus('Encoding GIF…');
       const gif = new GIF({
         workerScript,
         workers: 4,
         quality: 10,
         background: getPreviewBackgroundColor(),
-        width: canvas.width,
-        height: canvas.height,
+        width: firstCanvas.width,
+        height: firstCanvas.height,
         transparent: null,
       });
 
-      gif.addFrame(canvas, { delay: gifDuration, copy: true });
+      sequence.frames.forEach((frameCanvas) => {
+        gif.addFrame(frameCanvas, { delay: sequence.frameDelay, copy: true });
+      });
+
+      gif.addFrame(firstCanvas, { delay: sequence.frameDelay, copy: true });
+      sequence.frames.length = 0;
+
+  setStatus('Finalizing GIF…');
 
       const blob = await renderGif(gif);
       const url = URL.createObjectURL(blob);
@@ -540,6 +680,21 @@
     });
   }
 
+  if (gifFpsSlider) {
+    gifFpsSlider.addEventListener('input', (event) => {
+      applyGifFps(event.target.value);
+    });
+  }
+
+  if (gifFpsInput) {
+    gifFpsInput.addEventListener('change', (event) => {
+      applyGifFps(event.target.value);
+    });
+    gifFpsInput.addEventListener('blur', () => {
+      applyGifFps(gifFpsInput.value);
+    });
+  }
+
   window.addEventListener('beforeunload', () => {
     if (activeDownloadUrl) {
       URL.revokeObjectURL(activeDownloadUrl);
@@ -553,6 +708,8 @@
   textarea.value = PLACEHOLDER;
   gifDuration = Number(gifDurationSlider ? gifDurationSlider.value : DEFAULT_GIF_DURATION) || DEFAULT_GIF_DURATION;
   updateGifDurationUI();
+  gifFps = Number(gifFpsSlider ? gifFpsSlider.value : DEFAULT_GIF_FPS) || DEFAULT_GIF_FPS;
+  updateGifFpsUI();
   applyThemeToRoot();
   setActiveTheme(activeThemeKey, { refreshPreview: false });
   compileHtml({ silent: true });

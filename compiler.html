@@ -41,6 +41,10 @@
           <input id="gif-duration" type="range" min="1000" max="10000" step="500" value="3000" />
           <input id="gif-duration-input" type="number" min="1000" max="10000" step="100" value="3000" aria-label="GIF length in milliseconds" />
           <span id="gif-duration-value" aria-live="polite">3.0 s</span>
+          <label class="fps-label" for="gif-fps">FPS</label>
+          <input id="gif-fps" type="range" min="5" max="60" step="5" value="60" />
+          <input id="gif-fps-input" type="number" min="5" max="60" step="1" value="60" aria-label="GIF frames per second" />
+          <span id="gif-fps-value" aria-live="polite">60 fps</span>
           <button id="export-gif" type="button">Save GIF</button>
           <span id="status-text" aria-live="polite"></span>
         </div>
