@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Code Typer</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <h1>Code Typer</h1>
+      <p>Paste your code below and watch it play back with compiler vibes.</p>
+    </header>
+
+    <section class="panes">
+      <div class="pane input-pane">
+        <label for="code-input">Your Code</label>
+        <textarea id="code-input" placeholder="Paste or type your code here..."></textarea>
+        <div class="controls">
+          <label class="speed-label" for="speed">Speed</label>
+          <input id="speed" type="range" min="10" max="200" value="60" />
+          <span id="speed-value" aria-live="polite">60 ms</span>
+          <button id="run">Play Typing</button>
+          <button id="clear">Clear</button>
+        </div>
+      </div>
+
+      <div class="pane output-pane">
+        <label for="typed-output">Playback</label>
+        <pre id="typed-output" class="code-display"><code id="typed-target"></code></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://unpkg.com/typed.js@2.1.0/dist/typed.umd.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
