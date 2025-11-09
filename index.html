@@ -14,6 +14,9 @@
       <h1>Code Typer</h1>
   <p>Paste your code below, preview the playback, and export a share-ready GIF.</p>
     </header>
+    <nav class="app-nav" aria-label="Site">
+      <a class="app-nav__link" href="compiler.html">HTML Compiler</a>
+    </nav>
 
     <section class="panes">
       <div class="pane input-pane">
@@ -21,8 +24,19 @@
         <textarea id="code-input" placeholder="Paste or type your code here..."></textarea>
         <div class="controls">
           <label class="speed-label" for="speed">Speed</label>
-          <input id="speed" type="range" min="5" max="200" value="60" />
-          <span id="speed-value" aria-live="polite">60 ms</span>
+          <input id="speed" type="range" min="3" max="200" value="5" />
+          <input id="speed-input" type="number" min="3" max="200" value="5" aria-label="Speed in milliseconds" />
+          <span id="speed-value" aria-live="polite">5 ms</span>
+          <label class="theme-label" for="theme-select">Theme</label>
+          <select id="theme-select" aria-label="Code theme selector">
+            <option value="panda">Panda Syntax</option>
+            <option value="midnight">Midnight Vapor</option>
+            <option value="sunset">Sunset Glow</option>
+            <option value="forest">Forest Mist</option>
+            <option value="ocean">Oceanic Wave</option>
+            <option value="crimson">Crimson Pulse</option>
+            <option value="mono">Mono Noir</option>
+          </select>
           <button id="run">Play Typing</button>
           <button id="export-gif">Export GIF</button>
           <button id="clear">Clear</button>
@@ -32,6 +46,26 @@
 
       <div class="pane output-pane">
         <label for="typed-output">Playback</label>
+        <div class="stage-controls" aria-label="Playback size controls">
+          <div class="stage-control">
+            <label for="stage-width">Width</label>
+            <input id="stage-width" type="range" min="100" max="2600" step="10" value="680" />
+            <input id="stage-width-input" type="number" min="100" max="2600" step="10" value="680" aria-label="Stage width in pixels" />
+            <span id="stage-width-value" aria-live="polite">680 px</span>
+          </div>
+          <div class="stage-control">
+            <label for="stage-height">Height</label>
+            <input id="stage-height" type="range" min="200" max="3000" step="10" value="260" />
+            <input id="stage-height-input" type="number" min="200" max="3000" step="10" value="260" aria-label="Stage height in pixels" />
+            <span id="stage-height-value" aria-live="polite">260 px</span>
+          </div>
+          <div class="stage-control">
+            <label for="height-reset">Reset Height</label>
+            <input id="height-reset" type="range" min="100" max="3200" step="25" value="2400" />
+            <input id="height-reset-input" type="number" min="100" max="3200" step="25" value="2400" aria-label="Automatic reset height in pixels" />
+            <span id="height-reset-value" aria-live="polite">2400 px</span>
+          </div>
+        </div>
         <div class="code-stage" id="code-stage">
           <div class="window-top">
             <span class="dot dot-red"></span>
@@ -45,6 +79,16 @@
             </pre>
           </div>
         </div>
+        <section class="compile-section" aria-labelledby="compile-heading">
+          <div class="compile-header">
+            <h2 id="compile-heading">Compilation Library</h2>
+            <button id="compile-gif" type="button">Compile &amp; Save</button>
+          </div>
+          <p class="compile-caption">Create a saved GIF without downloading it immediately. Compilations stay here until you remove them.</p>
+          <div id="compile-list" class="compile-list" aria-live="polite">
+            <p class="compile-empty">No compilations yet. Compile your first GIF to store it here.</p>
+          </div>
+        </section>
       </div>
     </section>
   </main>

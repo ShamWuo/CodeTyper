@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HTML Compiler</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/panda-syntax-dark.min.css" integrity="sha512-+9RSqH7GA9EjnTBhdmLy1sswgQr0q8pr0jAqKKKYvj0p5eemgRXQwd2/3wkGcKSeMQNv11E2h3gKS2SxQK/4Qg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="compiler-page">
+  <main class="app-shell">
+    <header class="app-header">
+  <h1>HTML Compiler</h1>
+  <p>Author markup, preview it instantly, and export the rendered result as a share-ready GIF.</p>
+    </header>
+    <nav class="app-nav" aria-label="Site">
+      <a class="app-nav__link" href="index.html">Code Typer</a>
+    </nav>
+
+    <section class="panes compiler-layout">
+      <div class="pane input-pane">
+        <label for="html-input">HTML Markup</label>
+        <textarea id="html-input" placeholder="Write or paste HTML here..."></textarea>
+        <div class="controls">
+          <button id="compile-html" type="button">Compile HTML</button>
+          <button id="reset-html" type="button">Reset</button>
+        </div>
+        <div class="controls">
+          <label class="theme-label" for="compiler-theme">Theme</label>
+          <select id="compiler-theme" aria-label="Frame theme selector">
+            <option value="panda">Panda Syntax</option>
+            <option value="midnight">Midnight Vapor</option>
+            <option value="sunset">Sunset Glow</option>
+            <option value="forest">Forest Mist</option>
+            <option value="ocean">Oceanic Wave</option>
+            <option value="crimson">Crimson Pulse</option>
+            <option value="mono">Mono Noir</option>
+          </select>
+          <label class="duration-label" for="gif-duration">GIF Length</label>
+          <input id="gif-duration" type="range" min="1000" max="10000" step="500" value="3000" />
+          <input id="gif-duration-input" type="number" min="1000" max="10000" step="100" value="3000" aria-label="GIF length in milliseconds" />
+          <span id="gif-duration-value" aria-live="polite">3.0 s</span>
+          <button id="export-gif" type="button">Save GIF</button>
+          <span id="status-text" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <div class="pane output-pane">
+        <label for="html-preview">Rendered Preview</label>
+        <div class="preview-shell">
+          <iframe id="html-preview" title="HTML preview" sandbox="allow-scripts allow-same-origin"></iframe>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-bmH7E2noKGItgRZtGJPD7W82dManIeZDV4SSQdlqzTeWY5Avzkdxl3pNGdisz8Iky3Uczdlz7YTlNxQaBAEZjA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
+  <script src="compiler.js"></script>
+</body>
+</html>
