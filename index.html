@@ -11,7 +11,7 @@
   <main class="app-shell">
     <header class="app-header">
       <h1>Code Typer</h1>
-      <p>Paste your code below and watch it play back with compiler vibes.</p>
+  <p>Paste your code below, preview the playback, and export a share-ready GIF.</p>
     </header>
 
     <section class="panes">
@@ -23,18 +23,31 @@
           <input id="speed" type="range" min="10" max="200" value="60" />
           <span id="speed-value" aria-live="polite">60 ms</span>
           <button id="run">Play Typing</button>
+          <button id="export-gif">Export GIF</button>
           <button id="clear">Clear</button>
+          <span id="export-status" aria-live="polite"></span>
         </div>
       </div>
 
       <div class="pane output-pane">
         <label for="typed-output">Playback</label>
-        <pre id="typed-output" class="code-display"><code id="typed-target"></code></pre>
+        <div class="code-stage" id="code-stage">
+          <div class="window-top">
+            <span class="dot dot-red"></span>
+            <span class="dot dot-amber"></span>
+            <span class="dot dot-green"></span>
+          </div>
+          <div class="code-frame">
+            <pre id="typed-output" class="code-display"><code id="typed-target" class="code-content"></code></pre>
+          </div>
+        </div>
       </div>
     </section>
   </main>
 
   <script src="https://unpkg.com/typed.js@2.1.0/dist/typed.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
   <script src="main.js"></script>
 </body>
 </html>
