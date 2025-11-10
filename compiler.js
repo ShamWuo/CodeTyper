@@ -202,6 +202,7 @@
   const MAX_CAPTURE_FRAMES = 600;
   const MIN_FRAME_DELAY = 5;
   const MIN_WAIT_SLICE = 4;
+  const MIN_FINAL_FRAME_HOLD = 250;
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 
@@ -490,7 +491,9 @@
     );
 
     const frames = [];
-    const startTime = performance.now();
+    const frameDurations = [];
+    const sequenceStart = performance.now();
+    let lastCaptureComplete = sequenceStart;
 
     for (let index = 0; index < estimatedFrames; index += 1) {
       if (typeof onProgress === 'function') {
@@ -500,16 +503,30 @@
       const canvas = await capturePreviewCanvas(html2canvasInstance);
       frames.push(canvas);
 
+      const captureCompleted = performance.now();
+      const elapsed = captureCompleted - lastCaptureComplete;
+      const effectiveDelay = index === 0
+        ? frameDelay
+        : Math.max(frameDelay, Math.round(elapsed));
+      frameDurations.push(Math.max(MIN_FRAME_DELAY, Math.round(effectiveDelay)));
+      lastCaptureComplete = captureCompleted;
+
       if (index < estimatedFrames - 1) {
-        const targetNextCapture = startTime + frameDelay * (index + 1);
-        const waitTime = targetNextCapture - performance.now();
+        const targetNextCapture = sequenceStart + frameDelay * (index + 1);
+        const waitTime = targetNextCapture - captureCompleted;
         await sleep(waitTime > MIN_WAIT_SLICE ? waitTime : MIN_WAIT_SLICE);
       }
+    }
+
+    if (frameDurations.length) {
+      const lastIndex = frameDurations.length - 1;
+      frameDurations[lastIndex] = Math.max(frameDurations[lastIndex], MIN_FINAL_FRAME_HOLD);
     }
 
     return {
       frames,
       frameDelay,
+      frameDurations,
     };
   };
 
@@ -566,12 +583,16 @@
         transparent: null,
       });
 
-      sequence.frames.forEach((frameCanvas) => {
-        gif.addFrame(frameCanvas, { delay: sequence.frameDelay, copy: true });
+      sequence.frames.forEach((frameCanvas, frameIndex) => {
+        const delay = sequence.frameDurations && Number.isFinite(sequence.frameDurations[frameIndex])
+          ? sequence.frameDurations[frameIndex]
+          : sequence.frameDelay;
+        gif.addFrame(frameCanvas, { delay: Math.max(MIN_FRAME_DELAY, Math.round(delay)), copy: true });
       });
-
-      gif.addFrame(firstCanvas, { delay: sequence.frameDelay, copy: true });
       sequence.frames.length = 0;
+      if (Array.isArray(sequence.frameDurations)) {
+        sequence.frameDurations.length = 0;
+      }
 
   setStatus('Finalizing GIF…');
 

@@ -3,6 +3,8 @@
   const runButton = document.getElementById('run');
   const clearButton = document.getElementById('clear');
   const exportButton = document.getElementById('export-gif');
+  const fastExportToggle = document.getElementById('fast-export-toggle');
+  const gifSpeedMultiplierInput = document.getElementById('gif-speed-multiplier');
   const speedSlider = document.getElementById('speed');
   const speedInput = document.getElementById('speed-input');
   const speedValue = document.getElementById('speed-value');
@@ -28,6 +30,8 @@
   const PLACEHOLDER = '// Paste code and hit Play Typing.';
   const MAX_EXPORT_LENGTH = 12000;
   const GIF_WORKER = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js';
+  const MIN_GIF_SPEED_MULTIPLIER = 0.1;
+  const MAX_GIF_SPEED_MULTIPLIER = 5;
   const PREFERRED_LANGUAGES = ['javascript', 'typescript', 'xml', 'html', 'json', 'css', 'python', 'java', 'csharp', 'cpp', 'php', 'ruby', 'go', 'bash', 'markdown', 'yaml', 'sql'];
   const LANGUAGE_OPTIONS = [
     { value: 'auto', aliases: ['auto', 'detect', 'default', 'auto (detect)'] },
@@ -229,7 +233,7 @@
     fontFamily: '"Hack", "Fira Code", "Source Code Pro", Consolas, monospace',
     fontSize: 14,
     lineHeight: 14 * 1.33,
-    maxFrames: 140,
+  maxFrames: 480,
     lineNumberGutterWidth: 48,
     lineNumberPadding: 12,
   };
@@ -241,24 +245,32 @@
   let stageMinHeight = BASE_STAGE.minCodeHeight;
   let resetHeightLimit = DEFAULT_RESET_LIMIT;
   let typedInstance = null;
-  let isExporting = false;
-  let STAGE_THEME = { ...BASE_STAGE, ...THEMES[activeThemeKey] };
-  let showLineNumbers = false;
-  let manualLanguage = 'auto';
+      let processedFrames = 0;
+      let typedFramesUsed = 0;
+      let carryPause = 0;
+      let gif = null;
+      const workerScript = await getWorkerScriptURL();
 
-  const ensureThemeDefaults = () => {
-    STAGE_THEME.lineNumberColor = STAGE_THEME.lineNumberColor || STAGE_THEME.commentColor || STAGE_THEME.textColor;
-  };
+      let previousSliceLength = 0;
 
-  ensureThemeDefaults();
+      for (let index = 0;
+        index < exportContent.length
+        && processedFrames < maxFrameCap
+        && typedFramesUsed < maxTypingFrames; ) {
+        const preHold = collectPausesThrough(previousSliceLength);
+        if (preHold > 0) {
+          const leftoverPre = appendHoldFrames(previousSliceLength, true, preHold);
+          if (leftoverPre > 0) {
+            carryPause += leftoverPre;
+          }
+        }
 
-  const syncStageMetrics = () => {
-    STAGE_THEME.width = stageWidth;
-    STAGE_THEME.minCodeHeight = stageMinHeight;
-  };
+        if (processedFrames >= maxFrameCap || typedFramesUsed >= maxTypingFrames) {
+          break;
+        }
 
-  syncStageMetrics();
-
+        const remainingChars = exportContent.length - index;
+        const framesRemaining = Math.max(1, maxTypingFrames - typedFramesUsed);
   const buildHighlightMap = (theme) => ({
     default: theme.textColor,
     'hljs-comment': theme.commentColor,
@@ -278,18 +290,21 @@
     'hljs-attribute .hljs-name': theme.attributeColor,
     'hljs-attr-name': theme.attributeColor,
     'hljs-literal': theme.booleanColor || theme.numberColor,
-    'hljs-literal.boolean-literal': theme.booleanColor || theme.numberColor,
-    'hljs-literal.special-literal': theme.constantColor || theme.numberColor,
-    'hljs-number': theme.numberColor,
-    'hljs-variable': theme.variableColor,
-    'hljs-template-variable': theme.variableColor,
-    'hljs-template-variable.infix': theme.variableBuiltinColor || theme.variableColor,
-    'hljs-template-tag': theme.metaColor || theme.keywordColor,
+        let accumulatedPause = collectPausesThrough(nextIndex);
+        if (accumulatedPause > 0 && !isFinalChunk) {
+          accumulatedPause = appendHoldFrames(nextIndex, true, accumulatedPause);
+        }
+
+        carryPause += accumulatedPause;
+
+        if (!appendFrame(canvas, delay + carryPause)) {
     'hljs-params': theme.variableColor,
     'hljs-variable.language_': theme.variableBuiltinColor || theme.variableColor,
+        carryPause = 0;
     'hljs-variable.global_': theme.variableBuiltinColor || theme.variableColor,
     'hljs-variable.special_': theme.variableBuiltinColor || theme.variableColor,
     'hljs-variable.constant_': theme.constantColor,
+        typedFramesUsed += 1;
     'hljs-constant': theme.constantColor,
     'hljs-title': theme.functionColor,
     'hljs-title.function_': theme.functionColor,
@@ -320,6 +335,7 @@
 
   let highlightColorMap = buildHighlightMap(STAGE_THEME);
   let isResettingHeight = false;
+  let lineNumberOffset = 0;
 
   const activeCompilationUrls = new Set();
   let compilationCount = 0;
@@ -504,7 +520,7 @@
       return;
     }
 
-    const min = Number(speedSlider ? speedSlider.min : 3) || 3;
+  const min = Number(speedSlider ? speedSlider.min : 1) || 1;
     const max = Number(speedSlider ? speedSlider.max : 200) || 200;
     const clamped = Math.min(max, Math.max(min, Math.round(numeric)));
     const previous = Number(speedSlider ? speedSlider.value : clamped);
@@ -521,6 +537,30 @@
     if (restart && typedInstance && clamped !== previous) {
       startTyping();
     }
+  };
+
+  const clampGifSpeedMultiplier = (value) => {
+    if (!Number.isFinite(value)) {
+      return 1;
+    }
+    return Math.min(MAX_GIF_SPEED_MULTIPLIER, Math.max(MIN_GIF_SPEED_MULTIPLIER, value));
+  };
+
+  const applyGifSpeedMultiplier = (value) => {
+    const numeric = Number(value);
+    const clamped = clampGifSpeedMultiplier(numeric);
+    if (gifSpeedMultiplierInput && Number(gifSpeedMultiplierInput.value) !== clamped) {
+      gifSpeedMultiplierInput.value = String(clamped);
+    }
+    return clamped;
+  };
+
+  const getGifSpeedMultiplier = () => {
+    if (!gifSpeedMultiplierInput) {
+      return 1;
+    }
+    const numeric = Number(gifSpeedMultiplierInput.value);
+    return clampGifSpeedMultiplier(numeric);
   };
 
   const applyStageWidth = (value) => {
@@ -574,7 +614,8 @@
       return false;
     }
 
-    const originalBuffer = bufferTarget.textContent || '';
+  const originalBuffer = bufferTarget.textContent || '';
+  const originalLineCount = countLines(originalBuffer);
     if (!originalBuffer) {
       return false;
     }
@@ -621,10 +662,16 @@
 
     if (didTrim) {
       const finalBuffer = bufferTarget.textContent || '';
+      const finalLineCount = countLines(finalBuffer);
+      const removedLines = Math.max(0, originalLineCount - finalLineCount);
+      if (removedLines > 0) {
+        lineNumberOffset += removedLines;
+      }
       const removedChars = (originalBuffer || '').length - finalBuffer.length;
       if (removedChars > 0) {
         queueTypedFrontTrim(removedChars);
       }
+      renderBuffer(finalBuffer);
     }
 
     isResettingHeight = false;
@@ -715,6 +762,14 @@
     return highlightColorMap.default;
   };
 
+  const countLines = (value) => {
+    if (!value) {
+      return 0;
+    }
+    const matches = value.match(/\n/g);
+    return matches ? matches.length + 1 : 1;
+  };
+
   const parseHighlighted = (html) => {
     const container = document.createElement('div');
     container.innerHTML = (html || '').replace(/\t/g, '  ');
@@ -767,7 +822,7 @@
         : [{ text: ' ', color: highlightColorMap.default, classes: [], classKey: '' }];
       const lineElement = document.createElement('span');
       lineElement.className = 'code-line';
-      lineElement.dataset.line = String(lineIndex + 1);
+      lineElement.dataset.line = String(lineNumberOffset + lineIndex + 1);
 
       actualFragments.forEach(({ text, color, classes }) => {
         const span = document.createElement('span');
@@ -1674,6 +1729,61 @@ greet('Creator');`;
     return didMutate ? processed.join('\n') : code;
   };
 
+  const prepareContentForExport = (code) => {
+    if (!code) {
+      return {
+        content: '',
+        pauses: [],
+      };
+    }
+
+    const lines = code.split('\n');
+    const pauses = [];
+    let exportContent = '';
+    let currentLength = 0;
+
+    const appendLine = (line) => {
+      if (exportContent.length) {
+        exportContent += '\n';
+        currentLength += 1;
+      }
+      exportContent += line;
+      currentLength += line.length;
+    };
+
+    lines.forEach((line) => {
+      const match = WAIT_DIRECTIVE_PATTERN.exec(line);
+      if (match) {
+        const rawValue = match[1];
+        const unit = (match[2] || 's').toLowerCase();
+        const parsed = rawValue === undefined || rawValue === null || rawValue === ''
+          ? DEFAULT_WAIT_SECONDS
+          : Number.parseFloat(rawValue);
+
+        if (!Number.isFinite(parsed)) {
+          appendLine(line);
+          return;
+        }
+
+        const durationMs = unit === 'ms'
+          ? Math.max(0, Math.round(parsed))
+          : Math.max(0, Math.round(parsed * 1000));
+
+        if (durationMs > 0) {
+          pauses.push({ index: currentLength, duration: durationMs });
+        }
+        return;
+      }
+
+      appendLine(line);
+    });
+
+    return {
+      content: exportContent,
+      pauses,
+    };
+  };
+
   let typedTrimPatchApplied = false;
 
   const ensureTypedTrimPatch = () => {
@@ -1843,6 +1953,7 @@ greet('Creator');`;
     const content = getNormalizedContent();
     setStatus('');
 
+    lineNumberOffset = 0;
     destroyTyped();
     bufferTarget.textContent = '';
     applyHighlight();
@@ -1916,6 +2027,12 @@ greet('Creator');`;
     if (languageInput) {
       languageInput.disabled = disabled;
     }
+    if (fastExportToggle) {
+      fastExportToggle.disabled = disabled;
+    }
+    if (gifSpeedMultiplierInput) {
+      gifSpeedMultiplierInput.disabled = disabled;
+    }
     textarea.readOnly = disabled;
   };
 
@@ -1944,12 +2061,96 @@ greet('Creator');`;
       toggleControls(true);
       setStatus(`Rendering ${label}…`);
 
+      const { content: exportContent, pauses: waitPauses } = prepareContentForExport(content);
       const renderer = createCanvasRenderer();
-      const typedSpeed = Math.max(1, Number(speedSlider.value));
-      const typingFrameBudget = Math.max(1, STAGE_THEME.maxFrames - 1);
-      const chunkSize = Math.max(1, Math.ceil(content.length / typingFrameBudget));
-      const estimatedTypingFrames = content.length ? Math.min(typingFrameBudget, Math.ceil(content.length / chunkSize)) : 0;
-      const estimatedFrames = Math.min(STAGE_THEME.maxFrames, estimatedTypingFrames + 1);
+      const fastMode = Boolean(fastExportToggle && fastExportToggle.checked);
+      const baseTypedSpeed = Math.max(1, Number(speedSlider.value));
+      const gifSpeedMultiplier = applyGifSpeedMultiplier(gifSpeedMultiplierInput ? gifSpeedMultiplierInput.value : 1);
+      const typedSpeed = Math.max(1, Math.round(baseTypedSpeed / Math.max(gifSpeedMultiplier, MIN_GIF_SPEED_MULTIPLIER)));
+      const maxFrameCap = Math.max(2, fastMode ? Math.floor(STAGE_THEME.maxFrames * 0.55) : STAGE_THEME.maxFrames);
+      const qualitySetting = fastMode ? 20 : 10;
+      const charFrameCap = fastMode ? 12 : 6;
+      const baseCharsPerFrame = Math.floor((Math.max(typedSpeed, 24)) / 18);
+      const targetCharsPerFrame = exportContent.length
+        ? Math.max(1, Math.min(charFrameCap, baseCharsPerFrame || 1))
+        : 1;
+      const roughFrameNeed = exportContent.length ? Math.ceil(exportContent.length / targetCharsPerFrame) : 0;
+      const maxTypingFrames = exportContent.length
+        ? Math.max(
+            1,
+            Math.min(
+              Math.max(1, maxFrameCap - 1),
+              Math.ceil(roughFrameNeed / (fastMode ? 1.4 : 1)),
+            ),
+          )
+        : 0;
+      const estimatedFrames = Math.min(maxFrameCap, (maxTypingFrames || 0) + 1);
+      const frameDelays = [];
+      let pauseCursor = 0;
+      let lastCanvas = null;
+      let lastCanvasLength = 0;
+      let lastCanvasCursor = true;
+
+      const HOLD_CHUNK_MAX = fastMode ? 200 : 240;
+      const HOLD_CHUNK_MIN = fastMode ? 80 : 120;
+
+      const collectPausesThrough = (limit) => {
+        let total = 0;
+        while (pauseCursor < waitPauses.length && waitPauses[pauseCursor].index <= limit) {
+          total += waitPauses[pauseCursor].duration;
+          pauseCursor += 1;
+        }
+        return total;
+      };
+
+      const appendFrame = (canvas, delay) => {
+        if (processedFrames >= maxFrameCap) {
+          return false;
+        }
+        if (!gif) {
+          gif = new GIF({
+            workerScript,
+            workers: 4,
+            quality: qualitySetting,
+            width: canvas.width,
+            height: canvas.height,
+          });
+        }
+        const safeDelay = Math.max(MIN_FRAME_DELAY, Math.round(delay));
+        gif.addFrame(canvas, { delay: safeDelay, copy: true });
+        frameDelays.push(safeDelay);
+        processedFrames += 1;
+        return true;
+      };
+
+      const ensureStateCanvas = (length, showCursor) => {
+        if (lastCanvas && lastCanvasLength === length && lastCanvasCursor === showCursor) {
+          return lastCanvas;
+        }
+        const stateHtml = highlightCode(exportContent.slice(0, length)) || '';
+        const canvas = renderCanvasFrame(renderer, stateHtml, { showCursor });
+        lastCanvas = canvas;
+        lastCanvasLength = length;
+        lastCanvasCursor = showCursor;
+        return canvas;
+      };
+
+      const appendHoldFrames = (length, showCursor, duration) => {
+        let remaining = Math.max(0, duration);
+        if (remaining <= 0) {
+          return 0;
+        }
+        const holdCanvas = ensureStateCanvas(length, showCursor);
+        while (remaining > 0 && processedFrames < maxFrameCap) {
+          const chunk = Math.min(remaining, HOLD_CHUNK_MAX);
+          const holdDelay = Math.max(HOLD_CHUNK_MIN, chunk);
+          if (!appendFrame(holdCanvas, holdDelay)) {
+            break;
+          }
+          remaining -= chunk;
+        }
+        return remaining;
+      };
 
       let processedFrames = 0;
       let gif = null;
@@ -1957,34 +2158,60 @@ greet('Creator');`;
 
       let previousSliceLength = 0;
 
-      for (let index = 0; index < content.length && processedFrames < typingFrameBudget; index += chunkSize) {
-        const nextIndex = Math.min(content.length, index + chunkSize);
-        const slice = content.slice(0, nextIndex);
+      for (let index = 0; index < exportContent.length && processedFrames < maxFrameCap; ) {
+        const preHold = collectPausesThrough(previousSliceLength);
+        if (preHold > 0) {
+          appendHoldFrames(previousSliceLength, true, preHold);
+        }
+
+        if (processedFrames >= maxFrameCap) {
+          break;
+        }
+
+        const remainingChars = exportContent.length - index;
+        const framesRemaining = Math.max(1, maxTypingFrames - processedFrames);
+        const currentChunkSize = Math.max(1, Math.ceil(remainingChars / framesRemaining));
+        const nextIndex = Math.min(exportContent.length, index + currentChunkSize);
+        const slice = exportContent.slice(0, nextIndex);
         const html = highlightCode(slice) || '';
-        const isFinalChunk = nextIndex >= content.length;
+        const isFinalChunk = nextIndex >= exportContent.length;
         const canvas = renderCanvasFrame(renderer, html, { showCursor: !isFinalChunk });
         const charsTypedThisFrame = Math.max(1, nextIndex - previousSliceLength);
         previousSliceLength = nextIndex;
 
         let delay = typedSpeed * Math.max(1, charsTypedThisFrame);
         if (!isFinalChunk) {
-          const MIN_DELAY_MS = Math.max(16, Math.floor(typedSpeed * 0.6));
-          const MAX_DELAY_MS = Math.max(typedSpeed * chunkSize * 1.5, typedSpeed);
+          const MIN_DELAY_MS = Math.max(10, Math.floor(typedSpeed * (fastMode ? 0.4 : 0.55)));
+          const MAX_DELAY_MS = Math.max(
+            typedSpeed * currentChunkSize * (fastMode ? 1.1 : 1.35),
+            typedSpeed,
+          );
           delay = Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, delay));
         }
 
-        if (!gif) {
-          gif = new GIF({
-            workerScript,
-            workers: 4,
-            quality: 10,
-            width: canvas.width,
-            height: canvas.height,
-          });
+        let accumulatedPause = 0;
+        while (pauseCursor < waitPauses.length && waitPauses[pauseCursor].index <= nextIndex) {
+          accumulatedPause += waitPauses[pauseCursor].duration;
+          pauseCursor += 1;
+        }
+        if (accumulatedPause > 0) {
+          delay += accumulatedPause;
         }
 
-        gif.addFrame(canvas, { delay, copy: true });
-        processedFrames += 1;
+        let accumulatedPause = collectPausesThrough(nextIndex);
+
+        if (accumulatedPause > 0 && !isFinalChunk) {
+          appendHoldFrames(nextIndex, true, accumulatedPause);
+          accumulatedPause = 0;
+        }
+
+        if (!appendFrame(canvas, delay + accumulatedPause)) {
+          break;
+        }
+        lastCanvas = canvas;
+        lastCanvasLength = nextIndex;
+        lastCanvasCursor = !isFinalChunk;
+        index = nextIndex;
 
         if (estimatedFrames > 0 && processedFrames % 5 === 0) {
           const percent = Math.min(100, Math.round((processedFrames / estimatedFrames) * 100));
@@ -1995,26 +2222,39 @@ greet('Creator');`;
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
 
-        if (processedFrames >= typingFrameBudget) {
+        if (processedFrames >= maxTypingFrames) {
           break;
         }
       }
 
-      if (processedFrames < STAGE_THEME.maxFrames) {
-        const finalHtml = highlightCode(content) || '';
+      let trailingPause = carryPause + collectPausesThrough(exportContent.length);
+      carryPause = 0;
+      let trailingLeftover = trailingPause > 0
+        ? appendHoldFrames(exportContent.length, false, trailingPause)
+        : 0;
+
+      if (processedFrames < maxFrameCap) {
+        const finalHtml = highlightCode(exportContent) || '';
         const finalCanvas = renderCanvasFrame(renderer, finalHtml, { showCursor: false });
-        const finalDelay = Math.max(typedSpeed * 8, typedSpeed, 600);
-        if (!gif) {
-          gif = new GIF({
-            workerScript,
-            workers: 4,
-            quality: 10,
-            width: finalCanvas.width,
-            height: finalCanvas.height,
-          });
-        }
-        gif.addFrame(finalCanvas, { delay: finalDelay, copy: true });
-        processedFrames += 1;
+        const MIN_FINAL_DELAY = fastMode ? 500 : 800;
+        const MAX_FINAL_DELAY = fastMode ? 2500 : 4000;
+        const averageDelay = frameDelays.length
+          ? frameDelays.reduce((sum, value) => sum + value, 0) / frameDelays.length
+          : typedSpeed * Math.max(1, targetCharsPerFrame);
+        const finalDelay = Math.max(
+          MIN_FINAL_DELAY,
+          Math.min(
+            MAX_FINAL_DELAY,
+            Math.max(
+              typedSpeed * (fastMode ? 5 : 8),
+              Math.round(averageDelay * (fastMode ? 1.4 : 2)) + Math.max(0, trailingLeftover || 0),
+            ),
+          ),
+        );
+        appendFrame(finalCanvas, finalDelay);
+        lastCanvas = finalCanvas;
+        lastCanvasLength = exportContent.length;
+        lastCanvasCursor = false;
       }
 
       if (!gif) {
@@ -2026,6 +2266,8 @@ greet('Creator');`;
 
       const blob = await renderGif(gif);
       const url = URL.createObjectURL(blob);
+
+    frameDelays.length = 0;
 
       if (download) {
         const autoLink = document.createElement('a');
@@ -2068,6 +2310,7 @@ greet('Creator');`;
   clearButton.addEventListener('click', () => {
     textarea.value = '';
     destroyTyped();
+    lineNumberOffset = 0;
     bufferTarget.textContent = '';
     applyHighlight();
     textarea.focus();
@@ -2174,6 +2417,22 @@ greet('Creator');`;
     });
   }
 
+  if (gifSpeedMultiplierInput) {
+    gifSpeedMultiplierInput.addEventListener('change', (event) => {
+      applyGifSpeedMultiplier(event.target.value);
+    });
+    gifSpeedMultiplierInput.addEventListener('blur', () => {
+      applyGifSpeedMultiplier(gifSpeedMultiplierInput.value);
+    });
+    gifSpeedMultiplierInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        applyGifSpeedMultiplier(gifSpeedMultiplierInput.value);
+        gifSpeedMultiplierInput.blur();
+      }
+    });
+  }
+
   exportButton.addEventListener('click', async () => {
     if (isExporting) {
       return;
@@ -2233,6 +2492,10 @@ greet('Creator');`;
 
   if (languageInput) {
     setManualLanguage(languageInput.value);
+  }
+
+  if (gifSpeedMultiplierInput) {
+    applyGifSpeedMultiplier(gifSpeedMultiplierInput.value);
   }
 
   textarea.value = demoSnippet;
