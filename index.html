@@ -46,6 +46,34 @@
             <option value="crimson">Crimson Pulse</option>
             <option value="mono">Mono Noir</option>
           </select>
+          <label class="combo-label" for="language-input">Language</label>
+          <div class="combo-input">
+            <input id="language-input" list="language-options" value="auto" aria-label="Code language override" />
+            <datalist id="language-options">
+              <option value="auto">Auto (detect)</option>
+              <option value="javascript">JavaScript</option>
+              <option value="typescript">TypeScript</option>
+              <option value="html">HTML</option>
+              <option value="css">CSS</option>
+              <option value="json">JSON</option>
+              <option value="python">Python</option>
+              <option value="java">Java</option>
+              <option value="csharp">C#</option>
+              <option value="cpp">C++</option>
+              <option value="go">Go</option>
+              <option value="php">PHP</option>
+              <option value="ruby">Ruby</option>
+              <option value="bash">Bash</option>
+              <option value="markdown">Markdown</option>
+              <option value="yaml">YAML</option>
+              <option value="sql">SQL</option>
+              <option value="plaintext">Plain text</option>
+            </datalist>
+          </div>
+          <label class="toggle-label" for="toggle-line-numbers">
+            <input id="toggle-line-numbers" type="checkbox" />
+            Show line numbers
+          </label>
           <button id="run">Play Typing</button>
           <button id="export-gif">Export GIF</button>
           <button id="clear">Clear</button>
@@ -76,11 +104,6 @@
           </div>
         </div>
         <div class="code-stage" id="code-stage">
-          <div class="window-top">
-            <span class="dot dot-red"></span>
-            <span class="dot dot-amber"></span>
-            <span class="dot dot-green"></span>
-          </div>
           <div class="code-frame">
             <pre id="typed-output" class="code-display">
               <code id="typed-buffer" class="code-buffer" aria-hidden="true"></code>

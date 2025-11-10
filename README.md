@@ -9,6 +9,8 @@ Code Typer is a browser-based typing simulator that turns real source code into 
 - Automatic trimming keeps playback performant during long sessions without flashing the cursor to the top.
 - Adjustable stage width, minimum height, and reset height when you need roomy frames.
 - Multiple color themes tuned for the custom highlight map.
+- Optional line numbers render in the live stage and exported GIFs with a single toggle.
+- Override syntax detection with a searchable language picker when auto-detect gets it wrong.
 - Export ready-to-share GIFs or compile them into a temporary library without downloading immediately.
 
 ## Quick Start
@@ -19,6 +21,14 @@ Code Typer is a browser-based typing simulator that turns real source code into 
 4. Hit **Export GIF** when you like the playback, or **Compile & Save** to stash it in the library panel.
 
 ## Pause Directives
+## Language Selection
+
+The app auto-detects the language for syntax highlighting, but you can override it at any time:
+
+- Use the **Language** combobox to search for a language or select **auto** to return to detection.
+- Highlight.js powers most languages, while JavaScript/TypeScript still fall back to the custom highlighter if the CDN script fails to load.
+- The selection carries through to GIF exports so rendered frames match the preview.
+
 
 Use `Tpyr.wait()` anywhere in your code to insert a natural pause while keeping the text intact.
 

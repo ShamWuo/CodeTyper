@@ -21,11 +21,50 @@
   const resetHeightSlider = document.getElementById('height-reset');
   const resetHeightInput = document.getElementById('height-reset-input');
   const resetHeightDisplay = document.getElementById('height-reset-value');
+  const lineNumberToggle = document.getElementById('toggle-line-numbers');
+  const codeFrame = document.querySelector('.code-frame');
+  const languageInput = document.getElementById('language-input');
 
   const PLACEHOLDER = '// Paste code and hit Play Typing.';
-  const MAX_EXPORT_LENGTH = 1200;
+  const MAX_EXPORT_LENGTH = 12000;
   const GIF_WORKER = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js';
-  const PREFERRED_LANGUAGES = ['javascript', 'typescript', 'xml', 'html', 'json', 'css'];
+  const PREFERRED_LANGUAGES = ['javascript', 'typescript', 'xml', 'html', 'json', 'css', 'python', 'java', 'csharp', 'cpp', 'php', 'ruby', 'go', 'bash', 'markdown', 'yaml', 'sql'];
+  const LANGUAGE_OPTIONS = [
+    { value: 'auto', aliases: ['auto', 'detect', 'default', 'auto (detect)'] },
+    { value: 'javascript', aliases: ['javascript', 'js', 'node'] },
+    { value: 'typescript', aliases: ['typescript', 'ts'] },
+    { value: 'html', aliases: ['html', 'markup', 'xml'] },
+    { value: 'css', aliases: ['css'] },
+    { value: 'json', aliases: ['json'] },
+    { value: 'python', aliases: ['python', 'py'] },
+    { value: 'java', aliases: ['java'] },
+    { value: 'csharp', aliases: ['c#', 'csharp', 'cs'] },
+    { value: 'cpp', aliases: ['c++', 'cpp'] },
+    { value: 'go', aliases: ['go', 'golang'] },
+    { value: 'php', aliases: ['php'] },
+    { value: 'ruby', aliases: ['ruby', 'rb'] },
+    { value: 'bash', aliases: ['bash', 'shell', 'sh'] },
+    { value: 'markdown', aliases: ['markdown', 'md'] },
+    { value: 'yaml', aliases: ['yaml', 'yml'] },
+    { value: 'sql', aliases: ['sql'] },
+    { value: 'plaintext', aliases: ['plaintext', 'plain', 'text', 'txt'] },
+  ];
+  const LANGUAGE_ALIAS_MAP = new Map();
+  LANGUAGE_OPTIONS.forEach(({ value, aliases }) => {
+    aliases.forEach((alias) => {
+      LANGUAGE_ALIAS_MAP.set(alias.toLowerCase(), value);
+    });
+  });
+  const HLJS_LANGUAGE_OVERRIDES = {
+    html: 'xml',
+    markup: 'xml',
+    csharp: 'cs',
+    cs: 'cs',
+    cpp: 'cpp',
+    'c++': 'cpp',
+    bash: 'shell',
+    shell: 'shell',
+  };
   const THEMES = {
     panda: {
       background: '#abb8c3',
@@ -179,10 +218,10 @@
   const BASE_STAGE = {
     width: 680,
     minCodeHeight: 260,
-    paddingX: 56,
-    paddingY: 56,
+    paddingX: 0,
+    paddingY: 0,
     innerPadding: 34,
-    topBarHeight: 24,
+    topBarHeight: 0,
     frameRadius: 18,
     dotRadius: 6,
     dotSpacing: 18,
@@ -191,6 +230,8 @@
     fontSize: 14,
     lineHeight: 14 * 1.33,
     maxFrames: 140,
+    lineNumberGutterWidth: 48,
+    lineNumberPadding: 12,
   };
 
   const DEFAULT_RESET_LIMIT = 2400;
@@ -202,6 +243,14 @@
   let typedInstance = null;
   let isExporting = false;
   let STAGE_THEME = { ...BASE_STAGE, ...THEMES[activeThemeKey] };
+  let showLineNumbers = false;
+  let manualLanguage = 'auto';
+
+  const ensureThemeDefaults = () => {
+    STAGE_THEME.lineNumberColor = STAGE_THEME.lineNumberColor || STAGE_THEME.commentColor || STAGE_THEME.textColor;
+  };
+
+  ensureThemeDefaults();
 
   const syncStageMetrics = () => {
     STAGE_THEME.width = stageWidth;
@@ -394,9 +443,11 @@
     root.style.setProperty('--code-constant', STAGE_THEME.constantColor || STAGE_THEME.numberColor);
     root.style.setProperty('--code-boolean', STAGE_THEME.booleanColor || STAGE_THEME.numberColor);
     root.style.setProperty('--code-color', STAGE_THEME.colorLiteralColor || STAGE_THEME.stringColor);
+    root.style.setProperty('--code-line-number', STAGE_THEME.lineNumberColor || STAGE_THEME.commentColor || STAGE_THEME.textColor);
     root.style.setProperty('--accent-cursor', STAGE_THEME.cursorColor);
     root.style.setProperty('--stage-width', `${stageWidth}px`);
     root.style.setProperty('--code-min-height', `${stageMinHeight}px`);
+    root.style.setProperty('--line-number-gutter', `${STAGE_THEME.lineNumberGutterWidth || 48}px`);
   };
 
   const updateStageWidthUI = () => {
@@ -605,6 +656,7 @@
 
     activeThemeKey = themeKey;
     STAGE_THEME = { ...BASE_STAGE, ...nextTheme };
+  ensureThemeDefaults();
     syncStageMetrics();
     highlightColorMap = buildHighlightMap(STAGE_THEME);
     applyThemeToRoot();
@@ -643,16 +695,18 @@
       return highlightColorMap.default;
     }
 
-    // Try direct class match first
-    for (let i = 0; i < classList.length; i += 1) {
-      const cls = classList[i];
+    const classes = Array.isArray(classList) ? classList : Array.from(classList);
+
+    // Try direct class match, preferring the most specific (latest) class
+    for (let i = classes.length - 1; i >= 0; i -= 1) {
+      const cls = classes[i];
       if (highlightColorMap[cls]) {
         return highlightColorMap[cls];
       }
     }
 
     // Check for composite mappings (e.g., "hljs-meta hljs-keyword")
-    const joined = classList.join(' ');
+    const joined = classes.join(' ');
     const compositeKey = Object.keys(highlightColorMap).find((key) => key.includes('.') && joined.includes(key.replace(/\s*\.\s*/g, ' ')));
     if (compositeKey && highlightColorMap[compositeKey]) {
       return highlightColorMap[compositeKey];
@@ -679,6 +733,7 @@
             lines[lines.length - 1].push({
               text: segment,
               color: getColorForClasses(inheritedClasses),
+              classes: inheritedClasses.length ? Array.from(new Set(inheritedClasses)) : [],
             });
           }
         });
@@ -707,24 +762,39 @@
     container.replaceChildren();
 
     effectiveLines.forEach((fragments, lineIndex) => {
-      const actualFragments = fragments.length ? fragments : [{ text: ' ', color: highlightColorMap.default }];
-      actualFragments.forEach(({ text, color }) => {
+      const actualFragments = fragments.length
+        ? fragments
+        : [{ text: ' ', color: highlightColorMap.default, classes: [], classKey: '' }];
+      const lineElement = document.createElement('span');
+      lineElement.className = 'code-line';
+      lineElement.dataset.line = String(lineIndex + 1);
+
+      actualFragments.forEach(({ text, color, classes }) => {
         const span = document.createElement('span');
         span.style.color = color || highlightColorMap.default;
+        if (classes && classes.length) {
+          span.className = classes.join(' ');
+        }
         span.textContent = text;
-        container.appendChild(span);
+        lineElement.appendChild(span);
       });
 
-      if (lineIndex < effectiveLines.length - 1) {
-        container.appendChild(document.createTextNode('\n'));
-      }
+      container.appendChild(lineElement);
     });
 
     if (showCursor) {
+      let cursorLine = container.lastElementChild;
+      if (!cursorLine) {
+        cursorLine = document.createElement('span');
+        cursorLine.className = 'code-line';
+        cursorLine.dataset.line = '1';
+        container.appendChild(cursorLine);
+      }
+
       const cursor = document.createElement('span');
       cursor.className = 'typed-cursor proxy';
       cursor.textContent = '|';
-      container.appendChild(cursor);
+      cursorLine.appendChild(cursor);
     }
   };
 
@@ -808,6 +878,141 @@
     }).join('');
   };
 
+  const manualHighlightMarkup = (code) => {
+    const tokens = [];
+    const push = (text, className = null) => {
+      if (!text) {
+        return;
+      }
+      tokens.push({ text, className });
+    };
+
+    const isWhitespace = (char) => /\s/.test(char);
+    let index = 0;
+    const length = code.length;
+
+    while (index < length) {
+      if (code.startsWith('<!--', index)) {
+        const end = code.indexOf('-->', index + 4);
+        const fragment = code.slice(index, end >= 0 ? end + 3 : length);
+        push(fragment, 'hljs-comment');
+        index = end >= 0 ? end + 3 : length;
+        continue;
+      }
+
+      if (code.startsWith('<!', index)) {
+        const end = code.indexOf('>', index + 2);
+        const fragment = code.slice(index, end >= 0 ? end + 1 : length);
+        push(fragment, 'hljs-meta');
+        index = end >= 0 ? end + 1 : length;
+        continue;
+      }
+
+      if (code[index] === '<') {
+        index += 1;
+        if (code[index] === '/') {
+          push('</', 'hljs-tag');
+          index += 1;
+        } else {
+          push('<', 'hljs-tag');
+        }
+
+        const nameMatch = /[A-Za-z][A-Za-z0-9:_-]*/.exec(code.slice(index));
+        if (nameMatch) {
+          push(nameMatch[0], 'hljs-name');
+          index += nameMatch[0].length;
+        }
+
+        while (index < length) {
+          if (code[index] === '>') {
+            break;
+          }
+          if (code[index] === '/' && code[index + 1] === '>') {
+            break;
+          }
+
+          if (isWhitespace(code[index])) {
+            const wsStart = index;
+            while (index < length && isWhitespace(code[index])) {
+              index += 1;
+            }
+            push(code.slice(wsStart, index), null);
+            continue;
+          }
+
+          const attrMatch = /[A-Za-z_:][A-Za-z0-9:._-]*/.exec(code.slice(index));
+          if (attrMatch) {
+            push(attrMatch[0], 'hljs-attr');
+            index += attrMatch[0].length;
+
+            while (index < length && isWhitespace(code[index])) {
+              const wsStart = index;
+              while (index < length && isWhitespace(code[index])) {
+                index += 1;
+              }
+              push(code.slice(wsStart, index), null);
+            }
+
+            if (code[index] === '=') {
+              push('=', 'hljs-operator');
+              index += 1;
+
+              while (index < length && isWhitespace(code[index])) {
+                const wsStart = index;
+                while (index < length && isWhitespace(code[index])) {
+                  index += 1;
+                }
+                push(code.slice(wsStart, index), null);
+              }
+
+              if (code[index] === '"' || code[index] === '\'') {
+                const quote = code[index];
+                const strStart = index;
+                index += 1;
+                while (index < length && code[index] !== quote) {
+                  index += 1;
+                }
+                if (index < length) {
+                  index += 1;
+                }
+                push(code.slice(strStart, index), 'hljs-string');
+              } else {
+                const unquoted = /[^\s>]+/.exec(code.slice(index));
+                if (unquoted) {
+                  push(unquoted[0], 'hljs-string');
+                  index += unquoted[0].length;
+                }
+              }
+            }
+            continue;
+          }
+
+          push(code[index], null);
+          index += 1;
+        }
+
+        if (code[index] === '/' && code[index + 1] === '>') {
+          push('/>', 'hljs-tag');
+          index += 2;
+        } else if (code[index] === '>') {
+          push('>', 'hljs-tag');
+          index += 1;
+        }
+        continue;
+      }
+
+      const nextTag = code.indexOf('<', index);
+      const textEnd = nextTag === -1 ? length : nextTag;
+      push(code.slice(index, textEnd), null);
+      index = textEnd;
+    }
+
+    return tokens.map(({ text, className }) => {
+      const escaped = escapeHtml(text);
+      return className ? `<span class="${className}">${escaped}</span>` : escaped;
+    }).join('');
+  };
+
   const createCanvasRenderer = () => {
     const scale = Math.min(3, Math.max(window.devicePixelRatio || 1, 2));
     const canvas = document.createElement('canvas');
@@ -831,28 +1036,172 @@
     ctx.closePath();
   };
 
+  const normalizeDisplayText = (value) => value.replace(/\t/g, '  ');
+
+  const consumeFittingChunk = (text, availableWidth, measure) => {
+    if (!text.length) {
+      return { chunk: '', width: 0, rest: '' };
+    }
+
+    const fullWidth = measure(text);
+    if (fullWidth <= availableWidth) {
+      return { chunk: text, width: fullWidth, rest: '' };
+    }
+
+    let low = 1;
+    let high = text.length;
+    let best = 0;
+
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const slice = text.slice(0, mid);
+      const sliceWidth = measure(slice);
+      if (sliceWidth <= availableWidth) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    if (best <= 0) {
+      const firstChar = text.slice(0, 1);
+      return { chunk: firstChar, width: measure(firstChar), rest: text.slice(1) };
+    }
+
+    let breakIndex = best;
+    if (breakIndex < text.length) {
+      const candidate = text.slice(0, breakIndex);
+      const lastSpace = Math.max(candidate.lastIndexOf(' '), candidate.lastIndexOf('\u00A0'));
+      if (lastSpace > 0) {
+        breakIndex = lastSpace + 1;
+      }
+    }
+
+    const chunk = text.slice(0, breakIndex);
+    const width = measure(chunk);
+    const rest = text.slice(breakIndex);
+    return { chunk, width, rest };
+  };
+
+  const wrapFragmentsForWidth = (fragments, maxWidth, ctx) => {
+    const wrappedLines = [];
+    const measure = (value) => ctx.measureText(value).width;
+    const sourceFragments = fragments.length
+      ? fragments
+      : [{ text: ' ', color: STAGE_THEME.textColor, classes: [], classKey: '' }];
+
+    let currentLine = [];
+    let currentWidth = 0;
+    let emitted = false;
+
+    const emitLine = () => {
+      const segments = currentLine.length
+        ? currentLine.map((segment) => ({
+            text: segment.text,
+            color: segment.color,
+            classes: segment.classes ? [...segment.classes] : [],
+            classKey: segment.classKey || (segment.classes ? segment.classes.join(' ') : ''),
+          }))
+        : [{ text: ' ', color: STAGE_THEME.textColor, classes: [], classKey: '' }];
+      wrappedLines.push({ fragments: segments });
+      currentLine = [];
+      currentWidth = 0;
+      emitted = true;
+    };
+
+    sourceFragments.forEach(({ text, color, classes }) => {
+      let remaining = normalizeDisplayText(text || '');
+      if (!remaining.length) {
+        return;
+      }
+
+      const fragmentColor = color || STAGE_THEME.textColor;
+      const fragmentClasses = Array.isArray(classes) ? classes : [];
+      const fragmentClassKey = fragmentClasses.length ? fragmentClasses.join(' ') : '';
+
+      while (remaining.length) {
+        const available = Math.max(0, maxWidth - currentWidth);
+        if (available <= 0) {
+          emitLine();
+          continue;
+        }
+
+        const { chunk, width, rest } = consumeFittingChunk(remaining, available, measure);
+        if (!chunk) {
+          break;
+        }
+
+        const lastSegment = currentLine[currentLine.length - 1];
+        if (lastSegment && lastSegment.color === fragmentColor && lastSegment.classKey === fragmentClassKey) {
+          lastSegment.text += chunk;
+        } else {
+          currentLine.push({
+            text: chunk,
+            color: fragmentColor,
+            classes: fragmentClasses.slice(),
+            classKey: fragmentClassKey,
+          });
+        }
+        currentWidth += width;
+        remaining = rest;
+      }
+    });
+
+    if (currentLine.length || !emitted) {
+      emitLine();
+    }
+
+    return wrappedLines;
+  };
+
+  const wrapTextLinesForWidth = (lines, maxWidth, ctx) => {
+    const wrapped = [];
+    lines.forEach((fragments, lineIndex) => {
+      const perLine = wrapFragmentsForWidth(fragments, maxWidth, ctx);
+      perLine.forEach((entry, segmentIndex) => {
+        wrapped.push({
+          lineNumber: lineIndex + 1,
+          fragments: entry.fragments,
+          continuation: segmentIndex > 0,
+        });
+      });
+    });
+    return wrapped;
+  };
+
   const renderCanvasFrame = (renderer, highlightedHtml, { showCursor = false } = {}) => {
     const { canvas, ctx, scale } = renderer;
     const lines = parseHighlighted(highlightedHtml);
 
     if (showCursor) {
       const lastLine = lines[lines.length - 1] || [];
-      lastLine.push({ text: '|', color: STAGE_THEME.cursorColor });
+      lastLine.push({ text: '|', color: STAGE_THEME.cursorColor, classes: [] });
       if (lines.length === 0) {
         lines.push(lastLine);
       }
     }
 
     const effectiveLines = lines.length ? lines : [[]];
-    const textLines = effectiveLines.map((fragments) => (fragments.length ? fragments : [{ text: ' ', color: STAGE_THEME.textColor }]));
 
-    const combinedInset = (STAGE_THEME.paddingX + STAGE_THEME.innerPadding) * 2;
-    const minimumFrameWidth = combinedInset + 40;
+  const combinedInset = (STAGE_THEME.paddingX + STAGE_THEME.innerPadding) * 2;
+  const gutterWidth = showLineNumbers ? (STAGE_THEME.lineNumberGutterWidth || 48) : 0;
+  const minimumFrameWidth = combinedInset + gutterWidth + 40;
     const frameWidth = Math.max(STAGE_THEME.width, minimumFrameWidth);
-    const textStartX = STAGE_THEME.paddingX + STAGE_THEME.innerPadding;
+    const textStartX = STAGE_THEME.paddingX + STAGE_THEME.innerPadding + gutterWidth;
     const textStartY = STAGE_THEME.paddingY + STAGE_THEME.topBarHeight + STAGE_THEME.innerPadding;
-    const textAreaWidth = Math.max(40, frameWidth - combinedInset);
-    const totalTextHeight = textLines.length * STAGE_THEME.lineHeight;
+    const textAreaWidth = Math.max(40, frameWidth - combinedInset - gutterWidth);
+    ctx.font = `${STAGE_THEME.fontSize}px ${STAGE_THEME.fontFamily}`;
+    let wrappedLines = wrapTextLinesForWidth(effectiveLines, textAreaWidth, ctx);
+
+    if (resetHeightLimit && resetHeightLimit > 0) {
+      const maxVisibleLines = Math.max(1, Math.floor(resetHeightLimit / STAGE_THEME.lineHeight));
+      if (wrappedLines.length > maxVisibleLines) {
+        wrappedLines = wrappedLines.slice(wrappedLines.length - maxVisibleLines);
+      }
+    }
+
+  const totalTextHeight = wrappedLines.length * STAGE_THEME.lineHeight;
     const contentHeight = Math.max(totalTextHeight, STAGE_THEME.minCodeHeight);
     const frameHeight = STAGE_THEME.innerPadding * 2 + contentHeight;
     const totalHeight = STAGE_THEME.paddingY * 2 + STAGE_THEME.topBarHeight + frameHeight;
@@ -863,9 +1212,6 @@
     ctx.save();
     ctx.scale(scale, scale);
     ctx.clearRect(0, 0, frameWidth, totalHeight);
-
-    ctx.fillStyle = STAGE_THEME.background;
-    ctx.fillRect(0, 0, frameWidth, totalHeight);
 
     // Draw frame with drop shadow
     ctx.save();
@@ -883,24 +1229,26 @@
     ctx.fill();
     ctx.restore();
 
-    // Window controls
-    const dotsY = STAGE_THEME.paddingY + STAGE_THEME.topBarHeight / 2 + 8;
-    const dotXStart = STAGE_THEME.paddingX + STAGE_THEME.dotOffset;
-    const dotColors = ['#ff5f56', '#ffbd2e', '#27c93f'];
-    dotColors.forEach((color, index) => {
-      ctx.beginPath();
-      ctx.fillStyle = color;
-      ctx.arc(dotXStart + index * STAGE_THEME.dotSpacing, dotsY, STAGE_THEME.dotRadius, 0, Math.PI * 2);
-      ctx.fill();
-    });
-
     // Text content
     ctx.textBaseline = 'top';
     ctx.font = `${STAGE_THEME.fontSize}px ${STAGE_THEME.fontFamily}`;
 
-    textLines.forEach((fragments, lineIndex) => {
+    wrappedLines.forEach((lineEntry, lineIndex) => {
+      const { fragments, lineNumber, continuation } = lineEntry;
       let cursorX = textStartX;
       const baselineY = textStartY + lineIndex * STAGE_THEME.lineHeight;
+
+      ctx.textAlign = 'left';
+      if (showLineNumbers && gutterWidth > 0) {
+        const numberText = continuation ? '' : String(lineNumber);
+        if (numberText) {
+          ctx.fillStyle = STAGE_THEME.lineNumberColor || STAGE_THEME.commentColor || STAGE_THEME.textColor;
+          ctx.textAlign = 'right';
+          const numberX = textStartX - (STAGE_THEME.lineNumberPadding || 12);
+          ctx.fillText(numberText, numberX, baselineY);
+          ctx.textAlign = 'left';
+        }
+      }
 
       fragments.forEach(({ text, color }) => {
         ctx.fillStyle = color || STAGE_THEME.textColor;
@@ -973,7 +1321,10 @@ greet('Creator');`;
       return 'plaintext';
     }
 
-    if (/^<[a-z!]/i.test(trimmed) && />/.test(trimmed)) {
+    if (/^<[a-z!]/i.test(trimmed)) {
+      if (/>/.test(trimmed) || /<\//.test(trimmed) || /\/>/.test(trimmed)) {
+        return 'html';
+      }
       return 'html';
     }
 
@@ -992,6 +1343,23 @@ greet('Creator');`;
     return 'javascript';
   };
 
+  const resolveLanguage = (code) => {
+    if (manualLanguage && manualLanguage !== 'auto') {
+      return manualLanguage;
+    }
+    return detectLanguage(code);
+  };
+
+  const setManualLanguage = (value) => {
+    const normalized = typeof value === 'string' ? value.trim().toLowerCase() : 'auto';
+    const resolved = LANGUAGE_ALIAS_MAP.get(normalized) || normalized;
+    manualLanguage = LANGUAGE_ALIAS_MAP.has(normalized) ? resolved : 'auto';
+    if (languageInput && languageInput.value.toLowerCase() !== (manualLanguage || 'auto')) {
+      languageInput.value = manualLanguage;
+    }
+    applyHighlight();
+  };
+
   const WAIT_DIRECTIVE_PATTERN = /^\s*Tpyr\.wait\(\s*([0-9]+(?:\.[0-9]+)?)?\s*(?:,?\s*(?:['\"])?(ms|s)(?:['\"])?\s*)?\)\s*;?(?:\s*\/\/.*)?$/i;
   const DEFAULT_WAIT_SECONDS = 1;
 
@@ -1001,35 +1369,50 @@ greet('Creator');`;
     }
 
     const lines = code.split('\n');
+    const processed = [];
+    let pendingDelayMarkup = '';
     let didMutate = false;
 
-    const processed = lines.map((line) => {
+    lines.forEach((line) => {
       const match = WAIT_DIRECTIVE_PATTERN.exec(line);
-      if (!match) {
-        return line;
+      if (match) {
+        const rawValue = match[1];
+        const unit = (match[2] || 's').toLowerCase();
+        const parsed = rawValue === undefined || rawValue === null || rawValue === ''
+          ? DEFAULT_WAIT_SECONDS
+          : Number.parseFloat(rawValue);
+
+        if (!Number.isFinite(parsed)) {
+          processed.push(line);
+          return;
+        }
+
+        const durationMs = unit === 'ms'
+          ? Math.max(0, Math.round(parsed))
+          : Math.max(0, Math.round(parsed * 1000));
+
+        if (durationMs > 0) {
+          pendingDelayMarkup += `^${durationMs}`;
+          didMutate = true;
+          return;
+        }
+
+        processed.push(line);
+        return;
       }
 
-      const rawValue = match[1];
-      const unit = (match[2] || 's').toLowerCase();
-      const parsed = rawValue === undefined || rawValue === null || rawValue === ''
-        ? DEFAULT_WAIT_SECONDS
-        : Number.parseFloat(rawValue);
-
-      if (!Number.isFinite(parsed)) {
-        return line;
+      if (pendingDelayMarkup) {
+        processed.push(`${pendingDelayMarkup}${line}`);
+        pendingDelayMarkup = '';
+      } else {
+        processed.push(line);
       }
-
-      const durationMs = unit === 'ms'
-        ? Math.max(0, Math.round(parsed))
-        : Math.max(0, Math.round(parsed * 1000));
-
-      if (durationMs <= 0) {
-        return line;
-      }
-
-      didMutate = true;
-      return `${line}^${durationMs}`;
     });
+
+    if (pendingDelayMarkup && processed.length) {
+      processed[processed.length - 1] += pendingDelayMarkup;
+      pendingDelayMarkup = '';
+    }
 
     return didMutate ? processed.join('\n') : code;
   };
@@ -1125,27 +1508,62 @@ greet('Creator');`;
       return '';
     }
 
-    const language = detectLanguage(code);
+    const language = resolveLanguage(code);
+    const normalizedLanguage = typeof language === 'string' ? language.toLowerCase() : 'plaintext';
+    const highlightLanguage = normalizedLanguage !== 'plaintext'
+      ? (HLJS_LANGUAGE_OVERRIDES[normalizedLanguage] || normalizedLanguage)
+      : 'plaintext';
+    const isMarkup = highlightLanguage === 'xml' || highlightLanguage === 'html';
 
-    if (typeof hljs === 'undefined') {
-      return language === 'javascript' || language === 'typescript'
-        ? manualHighlightJavascript(code)
-        : escapeHtml(code);
+    if (highlightLanguage === 'plaintext') {
+      return escapeHtml(code);
     }
 
-    try {
-      if (language !== 'plaintext') {
-        return hljs.highlight(code, { language, ignoreIllegals: true }).value;
-      }
-      const { value } = hljs.highlightAuto(code, PREFERRED_LANGUAGES);
-      return value;
-    } catch (error) {
-      console.warn('Highlighting failed, using manual fallback.', error);
-      if (language === 'javascript' || language === 'typescript') {
+    if (typeof hljs === 'undefined') {
+      if (highlightLanguage === 'javascript' || highlightLanguage === 'typescript') {
         return manualHighlightJavascript(code);
+      }
+      if (isMarkup) {
+        return manualHighlightMarkup(code);
       }
       return escapeHtml(code);
     }
+
+    let highlighted = '';
+    try {
+      if (highlightLanguage && highlightLanguage !== 'plaintext' && hljs.getLanguage && hljs.getLanguage(highlightLanguage)) {
+        highlighted = hljs.highlight(code, { language: highlightLanguage, ignoreIllegals: true }).value;
+      }
+    } catch (error) {
+      console.warn('Highlighting failed, using manual fallback.', error);
+    }
+
+    if (!highlighted) {
+      try {
+        const preferred = Array.isArray(PREFERRED_LANGUAGES) ? PREFERRED_LANGUAGES : [];
+        const uniqueList = [highlightLanguage, ...preferred.filter((lang) => lang !== highlightLanguage && lang !== 'auto')].filter(Boolean);
+        const { value } = hljs.highlightAuto(code, uniqueList.length ? uniqueList : undefined);
+        highlighted = value;
+      } catch (autoError) {
+        console.warn('Auto-highlighting fallback failed, using manual fallback.', autoError);
+      }
+    }
+
+    if (isMarkup && (!highlighted || highlighted.indexOf('<span') === -1)) {
+      return manualHighlightMarkup(code);
+    }
+
+    if (!highlighted || highlighted.indexOf('<span') === -1) {
+      if (highlightLanguage === 'javascript' || highlightLanguage === 'typescript') {
+        return manualHighlightJavascript(code);
+      }
+      if (isMarkup) {
+        return manualHighlightMarkup(code);
+      }
+      return escapeHtml(code);
+    }
+
+    return highlighted;
   };
 
   const applyHighlight = () => {
@@ -1230,6 +1648,12 @@ greet('Creator');`;
     if (resetHeightInput) {
       resetHeightInput.disabled = disabled;
     }
+    if (lineNumberToggle) {
+      lineNumberToggle.disabled = disabled;
+    }
+    if (languageInput) {
+      languageInput.disabled = disabled;
+    }
     textarea.readOnly = disabled;
   };
 
@@ -1259,40 +1683,46 @@ greet('Creator');`;
       setStatus(`Rendering ${label}…`);
 
       const renderer = createCanvasRenderer();
-      const frameDelay = Math.max(20, Number(speedSlider.value));
-      const step = Math.max(1, Math.ceil(content.length / Math.max(1, STAGE_THEME.maxFrames - 1)));
-      const estimatedFrames = Math.min(STAGE_THEME.maxFrames, Math.floor(content.length / step) + 1);
+      const typedSpeed = Math.max(1, Number(speedSlider.value));
+      const typingFrameBudget = Math.max(1, STAGE_THEME.maxFrames - 1);
+      const chunkSize = Math.max(1, Math.ceil(content.length / typingFrameBudget));
+      const estimatedTypingFrames = content.length ? Math.min(typingFrameBudget, Math.ceil(content.length / chunkSize)) : 0;
+      const estimatedFrames = Math.min(STAGE_THEME.maxFrames, estimatedTypingFrames + 1);
 
       let processedFrames = 0;
-      let addedFinalFrame = false;
       let gif = null;
       const workerScript = await getWorkerScriptURL();
 
-      for (let index = 0; index <= content.length; index += step) {
-        const isLastStep = index + step >= content.length;
-        const sliceIndex = isLastStep ? content.length : index;
-        const slice = content.slice(0, sliceIndex);
+      let previousSliceLength = 0;
+
+      for (let index = 0; index < content.length && processedFrames < typingFrameBudget; index += chunkSize) {
+        const nextIndex = Math.min(content.length, index + chunkSize);
+        const slice = content.slice(0, nextIndex);
         const html = highlightCode(slice) || '';
-        const canvas = renderCanvasFrame(renderer, html, { showCursor: !isLastStep });
-        const delay = isLastStep ? Math.max(1000, frameDelay * 8) : frameDelay;
+        const isFinalChunk = nextIndex >= content.length;
+        const canvas = renderCanvasFrame(renderer, html, { showCursor: !isFinalChunk });
+        const charsTypedThisFrame = Math.max(1, nextIndex - previousSliceLength);
+        previousSliceLength = nextIndex;
+
+        let delay = typedSpeed * Math.max(1, charsTypedThisFrame);
+        if (!isFinalChunk) {
+          const MIN_DELAY_MS = Math.max(16, Math.floor(typedSpeed * 0.6));
+          const MAX_DELAY_MS = Math.max(typedSpeed * chunkSize * 1.5, typedSpeed);
+          delay = Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, delay));
+        }
 
         if (!gif) {
           gif = new GIF({
             workerScript,
             workers: 4,
             quality: 10,
-            background: STAGE_THEME.background,
             width: canvas.width,
             height: canvas.height,
-            transparent: null,
           });
         }
 
         gif.addFrame(canvas, { delay, copy: true });
         processedFrames += 1;
-        if (isLastStep) {
-          addedFinalFrame = true;
-        }
 
         if (estimatedFrames > 0 && processedFrames % 5 === 0) {
           const percent = Math.min(100, Math.round((processedFrames / estimatedFrames) * 100));
@@ -1303,27 +1733,26 @@ greet('Creator');`;
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
 
-        if (processedFrames >= STAGE_THEME.maxFrames) {
+        if (processedFrames >= typingFrameBudget) {
           break;
         }
       }
 
-      if (!addedFinalFrame) {
+      if (processedFrames < STAGE_THEME.maxFrames) {
         const finalHtml = highlightCode(content) || '';
         const finalCanvas = renderCanvasFrame(renderer, finalHtml, { showCursor: false });
-        const finalDelay = Math.max(1000, frameDelay * 8);
+        const finalDelay = Math.max(typedSpeed * 8, typedSpeed, 600);
         if (!gif) {
           gif = new GIF({
             workerScript,
             workers: 4,
             quality: 10,
-            background: STAGE_THEME.background,
             width: finalCanvas.width,
             height: finalCanvas.height,
-            transparent: null,
           });
         }
         gif.addFrame(finalCanvas, { delay: finalDelay, copy: true });
+        processedFrames += 1;
       }
 
       if (!gif) {
@@ -1459,6 +1888,30 @@ greet('Creator');`;
     });
   }
 
+  if (lineNumberToggle && codeFrame) {
+    lineNumberToggle.addEventListener('change', (event) => {
+      showLineNumbers = Boolean(event.target.checked);
+      codeFrame.classList.toggle('line-numbers-enabled', showLineNumbers);
+      applyHighlight();
+    });
+  }
+
+  if (languageInput) {
+    languageInput.addEventListener('change', (event) => {
+      setManualLanguage(event.target.value);
+    });
+    languageInput.addEventListener('blur', () => {
+      setManualLanguage(languageInput.value);
+    });
+    languageInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        setManualLanguage(languageInput.value);
+        languageInput.blur();
+      }
+    });
+  }
+
   exportButton.addEventListener('click', async () => {
     if (isExporting) {
       return;
@@ -1510,6 +1963,15 @@ greet('Creator');`;
     activeCompilationUrls.forEach((url) => URL.revokeObjectURL(url));
     activeCompilationUrls.clear();
   });
+
+  if (lineNumberToggle && codeFrame) {
+    showLineNumbers = Boolean(lineNumberToggle.checked);
+    codeFrame.classList.toggle('line-numbers-enabled', showLineNumbers);
+  }
+
+  if (languageInput) {
+    setManualLanguage(languageInput.value);
+  }
 
   textarea.value = demoSnippet;
   updateSpeedLabel();
