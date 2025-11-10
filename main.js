@@ -809,7 +809,7 @@
   const JS_LITERALS = new Set(['true', 'false', 'null', 'undefined', 'NaN', 'Infinity']);
   const JS_BOOLEAN_LITERALS = new Set(['true', 'false']);
 
-  const manualHighlightJavascript = (code) => {
+  function manualHighlightJavascript(code) {
     const tokens = [];
     const push = (text, className = null) => {
       if (!text) {
@@ -876,26 +876,270 @@
       const escaped = escapeHtml(text);
       return className ? `<span class="${className}">${escaped}</span>` : escaped;
     }).join('');
-  };
+  }
 
-  const manualHighlightMarkup = (code) => {
-    const tokens = [];
-    const push = (text, className = null) => {
+  function manualHighlightCss(code) {
+    let output = '';
+    const length = code.length;
+    let index = 0;
+    let inBlock = false;
+    let expectingProperty = false;
+
+    const append = (text, className = null) => {
       if (!text) {
         return;
       }
-      tokens.push({ text, className });
+      const escaped = escapeHtml(text);
+      output += className ? `<span class="${className}">${escaped}</span>` : escaped;
+    };
+
+  const whitespaceRegex = /\s+/y;
+  const commentRegex = /\/\*[\s\S]*?\*\//y;
+  const stringRegex = /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/y;
+  const numberRegex = /\b\d+(?:\.\d+)?(?:%|px|em|rem|vh|vw|vmin|vmax|s|ms|deg|rad|turn)?\b/y;
+  const hexColorRegex = /#[0-9a-fA-F]{3,8}\b/y;
+    const identifierRegex = /[A-Za-z_-][A-Za-z0-9_-]*/y;
+
+    while (index < length) {
+      whitespaceRegex.lastIndex = index;
+      const wsMatch = whitespaceRegex.exec(code);
+      if (wsMatch && wsMatch.index === index) {
+        append(wsMatch[0], null);
+        index = whitespaceRegex.lastIndex;
+        continue;
+      }
+
+      commentRegex.lastIndex = index;
+      const commentMatch = commentRegex.exec(code);
+      if (commentMatch && commentMatch.index === index) {
+        append(commentMatch[0], 'hljs-comment');
+        index = commentRegex.lastIndex;
+        continue;
+      }
+
+      stringRegex.lastIndex = index;
+      const stringMatch = stringRegex.exec(code);
+      if (stringMatch && stringMatch.index === index) {
+        append(stringMatch[0], 'hljs-string');
+        index = stringRegex.lastIndex;
+        continue;
+      }
+
+      if (code[index] === '{') {
+        append('{', 'hljs-punctuation');
+        index += 1;
+        inBlock = true;
+        expectingProperty = true;
+        continue;
+      }
+
+      if (code[index] === '}') {
+        append('}', 'hljs-punctuation');
+        index += 1;
+        inBlock = false;
+        expectingProperty = false;
+        continue;
+      }
+
+      if (code[index] === ';') {
+        append(';', 'hljs-punctuation');
+        index += 1;
+        expectingProperty = true;
+        continue;
+      }
+
+      if (!inBlock) {
+        if (code[index] === ':' ) {
+          let colonCount = 0;
+          while (code[index + colonCount] === ':' && colonCount < 2) {
+            colonCount += 1;
+          }
+          const pseudoMatch = /^[A-Za-z-]+/.exec(code.slice(index + colonCount));
+          if (pseudoMatch) {
+            append(code.slice(index, index + colonCount), 'hljs-selector-pseudo');
+            append(pseudoMatch[0], 'hljs-selector-pseudo');
+            index += colonCount + pseudoMatch[0].length;
+            continue;
+          }
+        }
+
+        if (code[index] === '.') {
+          const classMatch = /^\.[A-Za-z0-9_-]+/.exec(code.slice(index));
+          if (classMatch) {
+            append(classMatch[0], 'hljs-selector-class');
+            index += classMatch[0].length;
+            continue;
+          }
+        }
+
+        if (code[index] === '#') {
+          const idMatch = /^#[A-Za-z0-9_-]+/.exec(code.slice(index));
+          if (idMatch) {
+            append(idMatch[0], 'hljs-selector-id');
+            index += idMatch[0].length;
+            continue;
+          }
+        }
+
+        if (code[index] === '@') {
+          const atMatch = /^@[A-Za-z_-]+/.exec(code.slice(index));
+          if (atMatch) {
+            append(atMatch[0], 'hljs-keyword');
+            index += atMatch[0].length;
+            continue;
+          }
+        }
+
+        if (code[index] === '[') {
+          const endAttr = code.indexOf(']', index + 1);
+          const fragment = code.slice(index, endAttr >= 0 ? endAttr + 1 : length);
+          append(fragment, 'hljs-attr');
+          index = endAttr >= 0 ? endAttr + 1 : length;
+          continue;
+        }
+
+        if (/[>+~,]/.test(code[index])) {
+          append(code[index], 'hljs-operator');
+          index += 1;
+          continue;
+        }
+
+        identifierRegex.lastIndex = 0;
+        const selectorMatch = identifierRegex.exec(code.slice(index));
+        if (selectorMatch) {
+          append(selectorMatch[0], 'hljs-selector-tag');
+          index += selectorMatch[0].length;
+          continue;
+        }
+
+        append(code[index], null);
+        index += 1;
+        continue;
+      }
+
+      if (code[index] === ':') {
+        append(':', 'hljs-operator');
+        index += 1;
+        expectingProperty = false;
+        continue;
+      }
+
+      if (expectingProperty) {
+        identifierRegex.lastIndex = 0;
+        const propertyMatch = identifierRegex.exec(code.slice(index));
+        if (propertyMatch) {
+          append(propertyMatch[0], 'hljs-attr');
+          index += propertyMatch[0].length;
+          continue;
+        }
+      }
+
+      if (code.startsWith('url(', index)) {
+        append('url', 'hljs-built_in');
+        index += 3;
+        continue;
+      }
+
+      if (code[index] === '(' || code[index] === ')') {
+        append(code[index], 'hljs-punctuation');
+        index += 1;
+        continue;
+      }
+
+      if (code[index] === ',') {
+        append(',', 'hljs-punctuation');
+        index += 1;
+        continue;
+      }
+
+      hexColorRegex.lastIndex = index;
+      const hexMatch = hexColorRegex.exec(code);
+      if (hexMatch && hexMatch.index === index) {
+        append(hexMatch[0], 'hljs-hexcolor');
+        index = hexColorRegex.lastIndex;
+        continue;
+      }
+
+      numberRegex.lastIndex = index;
+      const numberMatch = numberRegex.exec(code);
+      if (numberMatch && numberMatch.index === index) {
+        append(numberMatch[0], 'hljs-number');
+        index = numberRegex.lastIndex;
+        continue;
+      }
+
+      identifierRegex.lastIndex = 0;
+      const valueIdentifier = identifierRegex.exec(code.slice(index));
+      if (valueIdentifier) {
+        append(valueIdentifier[0], 'hljs-literal');
+        index += valueIdentifier[0].length;
+        continue;
+      }
+
+      append(code[index], null);
+      index += 1;
+    }
+
+    return output;
+  }
+
+  function highlightUsingLanguage(code, language) {
+    const normalized = typeof language === 'string' ? language.toLowerCase() : '';
+    const mapped = normalized && HLJS_LANGUAGE_OVERRIDES[normalized]
+      ? HLJS_LANGUAGE_OVERRIDES[normalized]
+      : normalized;
+
+    if (!mapped || mapped === 'plaintext') {
+      return escapeHtml(code);
+    }
+
+    if (typeof hljs !== 'undefined' && hljs.getLanguage && hljs.getLanguage(mapped)) {
+      try {
+        return hljs.highlight(code, { language: mapped, ignoreIllegals: true }).value;
+      } catch (inlineError) {
+        console.warn(`Inline ${mapped} highlight failed, using fallback.`, inlineError);
+      }
+    }
+
+    if (mapped === 'javascript' || mapped === 'typescript') {
+      return manualHighlightJavascript(code);
+    }
+
+    if (mapped === 'css') {
+      return manualHighlightCss(code);
+    }
+
+    return escapeHtml(code);
+  }
+
+  function manualHighlightMarkup(code) {
+    let output = '';
+    const length = code.length;
+    const lowerCode = code.toLowerCase();
+    let index = 0;
+
+    const append = (text, className = null) => {
+      if (!text) {
+        return;
+      }
+      const escaped = escapeHtml(text);
+      output += className ? `<span class="${className}">${escaped}</span>` : escaped;
+    };
+
+    const appendRaw = (html) => {
+      if (!html) {
+        return;
+      }
+      output += html;
     };
 
     const isWhitespace = (char) => /\s/.test(char);
-    let index = 0;
-    const length = code.length;
 
     while (index < length) {
       if (code.startsWith('<!--', index)) {
         const end = code.indexOf('-->', index + 4);
         const fragment = code.slice(index, end >= 0 ? end + 3 : length);
-        push(fragment, 'hljs-comment');
+        append(fragment, 'hljs-comment');
         index = end >= 0 ? end + 3 : length;
         continue;
       }
@@ -903,31 +1147,42 @@
       if (code.startsWith('<!', index)) {
         const end = code.indexOf('>', index + 2);
         const fragment = code.slice(index, end >= 0 ? end + 1 : length);
-        push(fragment, 'hljs-meta');
+        append(fragment, 'hljs-meta');
         index = end >= 0 ? end + 1 : length;
         continue;
       }
 
       if (code[index] === '<') {
+        let isClosing = false;
+        let isSelfClosing = false;
         index += 1;
         if (code[index] === '/') {
-          push('</', 'hljs-tag');
+          append('</', 'hljs-tag');
           index += 1;
+          isClosing = true;
         } else {
-          push('<', 'hljs-tag');
+          append('<', 'hljs-tag');
         }
 
         const nameMatch = /[A-Za-z][A-Za-z0-9:_-]*/.exec(code.slice(index));
+        let tagName = '';
         if (nameMatch) {
-          push(nameMatch[0], 'hljs-name');
-          index += nameMatch[0].length;
+          tagName = nameMatch[0];
+          append(tagName, 'hljs-name');
+          index += tagName.length;
         }
 
         while (index < length) {
           if (code[index] === '>') {
+            append('>', 'hljs-tag');
+            index += 1;
             break;
           }
+
           if (code[index] === '/' && code[index + 1] === '>') {
+            append('/>', 'hljs-tag');
+            index += 2;
+            isSelfClosing = true;
             break;
           }
 
@@ -936,13 +1191,13 @@
             while (index < length && isWhitespace(code[index])) {
               index += 1;
             }
-            push(code.slice(wsStart, index), null);
+            append(code.slice(wsStart, index), null);
             continue;
           }
 
           const attrMatch = /[A-Za-z_:][A-Za-z0-9:._-]*/.exec(code.slice(index));
           if (attrMatch) {
-            push(attrMatch[0], 'hljs-attr');
+            append(attrMatch[0], 'hljs-attr');
             index += attrMatch[0].length;
 
             while (index < length && isWhitespace(code[index])) {
@@ -950,11 +1205,11 @@
               while (index < length && isWhitespace(code[index])) {
                 index += 1;
               }
-              push(code.slice(wsStart, index), null);
+              append(code.slice(wsStart, index), null);
             }
 
             if (code[index] === '=') {
-              push('=', 'hljs-operator');
+              append('=', 'hljs-operator');
               index += 1;
 
               while (index < length && isWhitespace(code[index])) {
@@ -962,10 +1217,10 @@
                 while (index < length && isWhitespace(code[index])) {
                   index += 1;
                 }
-                push(code.slice(wsStart, index), null);
+                append(code.slice(wsStart, index), null);
               }
 
-              if (code[index] === '"' || code[index] === '\'') {
+              if (code[index] === '"' || code[index] === "'") {
                 const quote = code[index];
                 const strStart = index;
                 index += 1;
@@ -975,11 +1230,11 @@
                 if (index < length) {
                   index += 1;
                 }
-                push(code.slice(strStart, index), 'hljs-string');
+                append(code.slice(strStart, index), 'hljs-string');
               } else {
                 const unquoted = /[^\s>]+/.exec(code.slice(index));
                 if (unquoted) {
-                  push(unquoted[0], 'hljs-string');
+                  append(unquoted[0], 'hljs-string');
                   index += unquoted[0].length;
                 }
               }
@@ -987,31 +1242,33 @@
             continue;
           }
 
-          push(code[index], null);
+          append(code[index], null);
           index += 1;
         }
 
-        if (code[index] === '/' && code[index + 1] === '>') {
-          push('/>', 'hljs-tag');
-          index += 2;
-        } else if (code[index] === '>') {
-          push('>', 'hljs-tag');
-          index += 1;
+        const tagNameLower = tagName.toLowerCase();
+        if (!isClosing && !isSelfClosing && (tagNameLower === 'script' || tagNameLower === 'style')) {
+          const closingNeedle = `</${tagNameLower}`;
+          const closingIndex = lowerCode.indexOf(closingNeedle, index);
+          const contentEnd = closingIndex >= 0 ? closingIndex : length;
+          const innerContent = code.slice(index, contentEnd);
+          const forcedLanguage = tagNameLower === 'style' ? 'css' : 'javascript';
+          const highlightedInner = highlightUsingLanguage(innerContent, forcedLanguage) || escapeHtml(innerContent);
+          appendRaw(highlightedInner);
+          index = contentEnd;
         }
+
         continue;
       }
 
       const nextTag = code.indexOf('<', index);
       const textEnd = nextTag === -1 ? length : nextTag;
-      push(code.slice(index, textEnd), null);
+      append(code.slice(index, textEnd), null);
       index = textEnd;
     }
 
-    return tokens.map(({ text, className }) => {
-      const escaped = escapeHtml(text);
-      return className ? `<span class="${className}">${escaped}</span>` : escaped;
-    }).join('');
-  };
+    return output;
+  }
 
   const createCanvasRenderer = () => {
     const scale = Math.min(3, Math.max(window.devicePixelRatio || 1, 2));
@@ -1514,9 +1771,14 @@ greet('Creator');`;
       ? (HLJS_LANGUAGE_OVERRIDES[normalizedLanguage] || normalizedLanguage)
       : 'plaintext';
     const isMarkup = highlightLanguage === 'xml' || highlightLanguage === 'html';
+    const hasEmbeddedLanguages = isMarkup && /<\s*(script|style)\b/i.test(code);
 
     if (highlightLanguage === 'plaintext') {
       return escapeHtml(code);
+    }
+
+    if (hasEmbeddedLanguages) {
+      return manualHighlightMarkup(code);
     }
 
     if (typeof hljs === 'undefined') {
