@@ -1,4 +1,4 @@
-(() => {
+(async () => {
   const textarea = document.getElementById('code-input');
   const runButton = document.getElementById('run');
   const clearButton = document.getElementById('clear');
@@ -245,32 +245,24 @@
   let stageMinHeight = BASE_STAGE.minCodeHeight;
   let resetHeightLimit = DEFAULT_RESET_LIMIT;
   let typedInstance = null;
-      let processedFrames = 0;
-      let typedFramesUsed = 0;
-      let carryPause = 0;
-      let gif = null;
-      const workerScript = await getWorkerScriptURL();
+  let isExporting = false;
+  let STAGE_THEME = { ...BASE_STAGE, ...THEMES[activeThemeKey] };
+  let showLineNumbers = false;
+  let manualLanguage = 'auto';
 
-      let previousSliceLength = 0;
+  const ensureThemeDefaults = () => {
+    STAGE_THEME.lineNumberColor = STAGE_THEME.lineNumberColor || STAGE_THEME.commentColor || STAGE_THEME.textColor;
+  };
 
-      for (let index = 0;
-        index < exportContent.length
-        && processedFrames < maxFrameCap
-        && typedFramesUsed < maxTypingFrames; ) {
-        const preHold = collectPausesThrough(previousSliceLength);
-        if (preHold > 0) {
-          const leftoverPre = appendHoldFrames(previousSliceLength, true, preHold);
-          if (leftoverPre > 0) {
-            carryPause += leftoverPre;
-          }
-        }
+  ensureThemeDefaults();
 
-        if (processedFrames >= maxFrameCap || typedFramesUsed >= maxTypingFrames) {
-          break;
-        }
+  const syncStageMetrics = () => {
+    STAGE_THEME.width = stageWidth;
+    STAGE_THEME.minCodeHeight = stageMinHeight;
+  };
 
-        const remainingChars = exportContent.length - index;
-        const framesRemaining = Math.max(1, maxTypingFrames - typedFramesUsed);
+  syncStageMetrics();
+
   const buildHighlightMap = (theme) => ({
     default: theme.textColor,
     'hljs-comment': theme.commentColor,
@@ -290,21 +282,18 @@
     'hljs-attribute .hljs-name': theme.attributeColor,
     'hljs-attr-name': theme.attributeColor,
     'hljs-literal': theme.booleanColor || theme.numberColor,
-        let accumulatedPause = collectPausesThrough(nextIndex);
-        if (accumulatedPause > 0 && !isFinalChunk) {
-          accumulatedPause = appendHoldFrames(nextIndex, true, accumulatedPause);
-        }
-
-        carryPause += accumulatedPause;
-
-        if (!appendFrame(canvas, delay + carryPause)) {
+    'hljs-literal.boolean-literal': theme.booleanColor || theme.numberColor,
+    'hljs-literal.special-literal': theme.constantColor || theme.numberColor,
+    'hljs-number': theme.numberColor,
+    'hljs-variable': theme.variableColor,
+    'hljs-template-variable': theme.variableColor,
+    'hljs-template-variable.infix': theme.variableBuiltinColor || theme.variableColor,
+    'hljs-template-tag': theme.metaColor || theme.keywordColor,
     'hljs-params': theme.variableColor,
     'hljs-variable.language_': theme.variableBuiltinColor || theme.variableColor,
-        carryPause = 0;
     'hljs-variable.global_': theme.variableBuiltinColor || theme.variableColor,
     'hljs-variable.special_': theme.variableBuiltinColor || theme.variableColor,
     'hljs-variable.constant_': theme.constantColor,
-        typedFramesUsed += 1;
     'hljs-constant': theme.constantColor,
     'hljs-title': theme.functionColor,
     'hljs-title.function_': theme.functionColor,
@@ -2087,70 +2076,6 @@ greet('Creator');`;
       const estimatedFrames = Math.min(maxFrameCap, (maxTypingFrames || 0) + 1);
       const frameDelays = [];
       let pauseCursor = 0;
-      let lastCanvas = null;
-      let lastCanvasLength = 0;
-      let lastCanvasCursor = true;
-
-      const HOLD_CHUNK_MAX = fastMode ? 200 : 240;
-      const HOLD_CHUNK_MIN = fastMode ? 80 : 120;
-
-      const collectPausesThrough = (limit) => {
-        let total = 0;
-        while (pauseCursor < waitPauses.length && waitPauses[pauseCursor].index <= limit) {
-          total += waitPauses[pauseCursor].duration;
-          pauseCursor += 1;
-        }
-        return total;
-      };
-
-      const appendFrame = (canvas, delay) => {
-        if (processedFrames >= maxFrameCap) {
-          return false;
-        }
-        if (!gif) {
-          gif = new GIF({
-            workerScript,
-            workers: 4,
-            quality: qualitySetting,
-            width: canvas.width,
-            height: canvas.height,
-          });
-        }
-        const safeDelay = Math.max(MIN_FRAME_DELAY, Math.round(delay));
-        gif.addFrame(canvas, { delay: safeDelay, copy: true });
-        frameDelays.push(safeDelay);
-        processedFrames += 1;
-        return true;
-      };
-
-      const ensureStateCanvas = (length, showCursor) => {
-        if (lastCanvas && lastCanvasLength === length && lastCanvasCursor === showCursor) {
-          return lastCanvas;
-        }
-        const stateHtml = highlightCode(exportContent.slice(0, length)) || '';
-        const canvas = renderCanvasFrame(renderer, stateHtml, { showCursor });
-        lastCanvas = canvas;
-        lastCanvasLength = length;
-        lastCanvasCursor = showCursor;
-        return canvas;
-      };
-
-      const appendHoldFrames = (length, showCursor, duration) => {
-        let remaining = Math.max(0, duration);
-        if (remaining <= 0) {
-          return 0;
-        }
-        const holdCanvas = ensureStateCanvas(length, showCursor);
-        while (remaining > 0 && processedFrames < maxFrameCap) {
-          const chunk = Math.min(remaining, HOLD_CHUNK_MAX);
-          const holdDelay = Math.max(HOLD_CHUNK_MIN, chunk);
-          if (!appendFrame(holdCanvas, holdDelay)) {
-            break;
-          }
-          remaining -= chunk;
-        }
-        return remaining;
-      };
 
       let processedFrames = 0;
       let gif = null;
@@ -2158,16 +2083,7 @@ greet('Creator');`;
 
       let previousSliceLength = 0;
 
-      for (let index = 0; index < exportContent.length && processedFrames < maxFrameCap; ) {
-        const preHold = collectPausesThrough(previousSliceLength);
-        if (preHold > 0) {
-          appendHoldFrames(previousSliceLength, true, preHold);
-        }
-
-        if (processedFrames >= maxFrameCap) {
-          break;
-        }
-
+      for (let index = 0; index < exportContent.length && processedFrames < maxTypingFrames; ) {
         const remainingChars = exportContent.length - index;
         const framesRemaining = Math.max(1, maxTypingFrames - processedFrames);
         const currentChunkSize = Math.max(1, Math.ceil(remainingChars / framesRemaining));
@@ -2198,19 +2114,43 @@ greet('Creator');`;
           delay += accumulatedPause;
         }
 
-        let accumulatedPause = collectPausesThrough(nextIndex);
+        frameDelays.push(delay);
 
-        if (accumulatedPause > 0 && !isFinalChunk) {
-          appendHoldFrames(nextIndex, true, accumulatedPause);
-          accumulatedPause = 0;
+        if (!gif) {
+          gif = new GIF({
+            workerScript,
+            workers: 4,
+            quality: qualitySetting,
+            width: canvas.width,
+            height: canvas.height,
+          });
         }
 
-        if (!appendFrame(canvas, delay + accumulatedPause)) {
-          break;
+        // Add the main typing frame first
+        gif.addFrame(canvas, { delay, copy: true });
+
+        // Split any pause portion of this frame into multiple small-hold frames so that
+        // GIF players render long waits smoothly (many players behave poorly with one very
+        // large-delay frame). We treat the typing-like portion of `delay` as the first
+        // frame we already added, and the remainder (pausePart) is split into smaller
+        // hold frames of target size.
+        try {
+          const typingPart = Math.max(0, Math.min(delay, Math.max(10, typedSpeed)));
+          const pausePart = Math.max(0, delay - typingPart);
+          if (pausePart > 0) {
+            const targetHoldUnit = 100; // ms per hold-frame (tunable)
+            const holdCount = Math.max(1, Math.ceil(pausePart / targetHoldUnit));
+            const perHold = Math.max(1, Math.round(pausePart / holdCount));
+            for (let h = 0; h < holdCount; h += 1) {
+              gif.addFrame(canvas, { delay: perHold, copy: true });
+            }
+          }
+        } catch (e) {
+          // If anything goes wrong, fall back to the single-frame approach already added.
+          // Swallow errors to avoid breaking export.
         }
-        lastCanvas = canvas;
-        lastCanvasLength = nextIndex;
-        lastCanvasCursor = !isFinalChunk;
+
+        processedFrames += 1;
         index = nextIndex;
 
         if (estimatedFrames > 0 && processedFrames % 5 === 0) {
@@ -2227,12 +2167,6 @@ greet('Creator');`;
         }
       }
 
-      let trailingPause = carryPause + collectPausesThrough(exportContent.length);
-      carryPause = 0;
-      let trailingLeftover = trailingPause > 0
-        ? appendHoldFrames(exportContent.length, false, trailingPause)
-        : 0;
-
       if (processedFrames < maxFrameCap) {
         const finalHtml = highlightCode(exportContent) || '';
         const finalCanvas = renderCanvasFrame(renderer, finalHtml, { showCursor: false });
@@ -2241,20 +2175,33 @@ greet('Creator');`;
         const averageDelay = frameDelays.length
           ? frameDelays.reduce((sum, value) => sum + value, 0) / frameDelays.length
           : typedSpeed * Math.max(1, targetCharsPerFrame);
+        let remainingPause = 0;
+        while (pauseCursor < waitPauses.length) {
+          remainingPause += waitPauses[pauseCursor].duration;
+          pauseCursor += 1;
+        }
         const finalDelay = Math.max(
           MIN_FINAL_DELAY,
           Math.min(
             MAX_FINAL_DELAY,
             Math.max(
               typedSpeed * (fastMode ? 5 : 8),
-              Math.round(averageDelay * (fastMode ? 1.4 : 2)) + Math.max(0, trailingLeftover || 0),
+              Math.round(averageDelay * (fastMode ? 1.4 : 2)) + remainingPause,
             ),
           ),
         );
-        appendFrame(finalCanvas, finalDelay);
-        lastCanvas = finalCanvas;
-        lastCanvasLength = exportContent.length;
-        lastCanvasCursor = false;
+        if (!gif) {
+          gif = new GIF({
+            workerScript,
+            workers: 4,
+            quality: qualitySetting,
+            width: finalCanvas.width,
+            height: finalCanvas.height,
+          });
+        }
+        gif.addFrame(finalCanvas, { delay: finalDelay, copy: true });
+        processedFrames += 1;
+        frameDelays.push(finalDelay);
       }
 
       if (!gif) {
