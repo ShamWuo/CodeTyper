@@ -412,7 +412,7 @@
         }
       }
     } catch (error) {
-      // Ignore errors when reading styles from the preview.
+     
     }
     return STAGE_THEME.frameBackground;
   };
@@ -467,7 +467,7 @@
     const iframeWindow = previewFrame.contentWindow;
     const backgroundColor = getPreviewBackgroundColor();
 
-    // Capture the iframe document at the visible size so the GIF mirrors the preview surface.
+    
     return html2canvasInstance(previewFrame.contentDocument.documentElement, {
       backgroundColor,
       useCORS: true,

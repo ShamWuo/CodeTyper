@@ -12,6 +12,7 @@
   const highlightTarget = document.getElementById('typed-target');
   const bufferTarget = document.getElementById('typed-buffer');
   const themeSelect = document.getElementById('theme-select');
+  const fontSelect = document.getElementById('font-select');
   const compileButton = document.getElementById('compile-gif');
   const compilationList = document.getElementById('compile-list');
   const stageWidthSlider = document.getElementById('stage-width');
@@ -24,8 +25,603 @@
   const resetHeightInput = document.getElementById('height-reset-input');
   const resetHeightDisplay = document.getElementById('height-reset-value');
   const lineNumberToggle = document.getElementById('toggle-line-numbers');
-  const codeFrame = document.querySelector('.code-frame');
+  const playbackTitle = document.getElementById('playback-title');
+  const codeFrame = document.getElementById('code-frame');
+  const playbackFrame = document.querySelector('#playback-container .code-frame');
   const languageInput = document.getElementById('language-input');
+  const playbackContainer = document.getElementById('playback-container');
+  const playbackContext = document.getElementById('playback-context');
+  const settingsButton = document.getElementById('settings-btn');
+  const settingsPane = document.getElementById('settings-pane');
+  const settingsResizeHandle = document.getElementById('resize-handle-settings');
+  const playbackMinimizeBtn = document.getElementById('playback-minimize');
+  const playbackMaximizeBtn = document.getElementById('playback-maximize');
+  const timeDisplay = document.getElementById('time-display');
+
+  if (playbackFrame) {
+    playbackFrame.classList.remove('p-6');
+    playbackFrame.style.borderRadius = '0';
+    playbackFrame.style.border = '0';
+    playbackFrame.style.boxShadow = 'none';
+    const playbackTarget = playbackFrame.querySelector('#typed-target');
+    if (playbackTarget) {
+      playbackTarget.style.background = 'transparent';
+    }
+  }
+
+  // Syntax Highlighting Setup
+  const highlightOverlay = document.getElementById('code-input-highlight');
+  const highlightOverlayCode = highlightOverlay ? highlightOverlay.querySelector('code') : null;
+  const lineNumbersDiv = document.getElementById('line-numbers');
+  const editorRoot = document.documentElement;
+
+  const syncSourceEditorMetrics = () => {
+    if (!textarea || !highlightOverlay || !highlightOverlayCode || !editorRoot) {
+      return;
+    }
+
+    const style = window.getComputedStyle(textarea);
+    const setVar = (name, value) => {
+      if (value) {
+        editorRoot.style.setProperty(name, value);
+      }
+    };
+
+    setVar('--editor-font-size', style.fontSize);
+    setVar('--editor-line-height', style.lineHeight);
+    setVar('--editor-pad-top', style.paddingTop);
+    setVar('--editor-pad-right', style.paddingRight);
+    setVar('--editor-pad-bottom', style.paddingBottom);
+    setVar('--editor-pad-left', style.paddingLeft);
+    setVar('--editor-tab-size', style.tabSize || style.MozTabSize || '2');
+
+    highlightOverlay.style.fontFamily = style.fontFamily;
+    highlightOverlay.style.fontSize = style.fontSize;
+    highlightOverlay.style.lineHeight = style.lineHeight;
+    highlightOverlay.style.letterSpacing = style.letterSpacing;
+    highlightOverlay.style.tabSize = style.tabSize || style.MozTabSize || '2';
+
+    highlightOverlayCode.style.fontFamily = style.fontFamily;
+    highlightOverlayCode.style.fontSize = style.fontSize;
+    highlightOverlayCode.style.lineHeight = style.lineHeight;
+    highlightOverlayCode.style.letterSpacing = style.letterSpacing;
+    highlightOverlayCode.style.tabSize = style.tabSize || style.MozTabSize || '2';
+
+    if (lineNumbersDiv) {
+      lineNumbersDiv.style.fontFamily = style.fontFamily;
+      lineNumbersDiv.style.fontSize = style.fontSize;
+      lineNumbersDiv.style.lineHeight = style.lineHeight;
+    }
+  };
+
+  const updateLineNumbers = () => {
+    if (!lineNumbersDiv || !textarea) return;
+    const lineCount = textarea.value.split('\n').length;
+    let lineNumbersHtml = '';
+    for (let i = 1; i <= lineCount; i++) {
+      lineNumbersHtml += `<div>${i}</div>`;
+    }
+    lineNumbersDiv.innerHTML = lineNumbersHtml;
+  };
+
+  const updateHighlighting = () => {
+    if (!highlightOverlayCode || !textarea) {
+      return;
+    }
+    const code = textarea.value;
+    highlightOverlayCode.textContent = code;
+    
+    // Auto-detect language and apply highlighting
+    if (typeof hljs !== 'undefined') {
+      delete highlightOverlayCode.dataset.highlighted;
+      hljs.highlightElement(highlightOverlayCode);
+    }
+
+    // Update line numbers
+    updateLineNumbers();
+  };
+
+  // Sync scrolling between textarea and highlight overlay
+  const syncScroll = () => {
+    if (highlightOverlay && textarea) {
+      highlightOverlay.scrollTop = textarea.scrollTop;
+      highlightOverlay.scrollLeft = textarea.scrollLeft;
+    }
+    if (lineNumbersDiv && textarea) {
+      lineNumbersDiv.scrollTop = textarea.scrollTop;
+    }
+  };
+
+  if (textarea) {
+    textarea.addEventListener('input', updateHighlighting);
+    textarea.addEventListener('scroll', syncScroll);
+
+    syncSourceEditorMetrics();
+    window.addEventListener('resize', syncSourceEditorMetrics);
+
+    if (document.fonts && typeof document.fonts.ready?.then === 'function') {
+      document.fonts.ready.then(() => {
+        syncSourceEditorMetrics();
+        updateHighlighting();
+        syncScroll();
+      });
+    }
+    
+    // Initialize highlighting and line numbers immediately
+    setTimeout(() => {
+      syncSourceEditorMetrics();
+      updateHighlighting();
+      syncScroll();
+    }, 100);
+  }
+
+  // Playback edge-resize setup (drag on actual playback edges)
+  let isResizing = false;
+  let resizeEdge = '';
+  let startX = 0;
+  let startY = 0;
+  let startWidth = 680;
+  let startHeight = 450;
+  let contextWidth = 0;
+  let contextHeight = 0;
+  const edgeHitSize = 3;
+
+  const getResizeEdge = (event) => {
+    if (!playbackContainer) {
+      return '';
+    }
+
+    const rect = playbackContainer.getBoundingClientRect();
+    const leftDistance = event.clientX - rect.left;
+    const rightDistance = rect.right - event.clientX;
+    const topDistance = event.clientY - rect.top;
+    const bottomDistance = rect.bottom - event.clientY;
+
+    const insideX = leftDistance >= 0 && rightDistance >= 0;
+    const insideY = topDistance >= 0 && bottomDistance >= 0;
+
+    const onLeft = insideY && leftDistance >= 0 && leftDistance <= edgeHitSize;
+    const onRight = insideY && rightDistance >= 0 && rightDistance <= edgeHitSize;
+    const onTop = insideX && topDistance >= 0 && topDistance <= edgeHitSize;
+    const onBottom = insideX && bottomDistance >= 0 && bottomDistance <= edgeHitSize;
+
+    const vertical = onTop ? 'n' : onBottom ? 's' : '';
+    const horizontal = onLeft ? 'w' : onRight ? 'e' : '';
+    return `${vertical}${horizontal}`;
+  };
+
+  const edgeToCursor = (edge) => {
+    const cursors = {
+      n: 'n-resize',
+      s: 's-resize',
+      e: 'e-resize',
+      w: 'w-resize',
+      ne: 'ne-resize',
+      nw: 'nw-resize',
+      se: 'se-resize',
+      sw: 'sw-resize',
+    };
+    return cursors[edge] || '';
+  };
+
+  const startResize = (event) => {
+    if (!playbackContainer || event.button !== 0) {
+      return;
+    }
+
+    const edge = getResizeEdge(event);
+    if (!edge) {
+      return;
+    }
+
+    const rect = playbackContainer.getBoundingClientRect();
+    const contextElement = playbackContainer.parentElement || playbackContext || playbackContainer;
+    const contextRect = contextElement.getBoundingClientRect();
+
+    isResizing = true;
+    resizeEdge = edge;
+    startX = event.clientX;
+    startY = event.clientY;
+    startWidth = rect.width;
+    startHeight = rect.height;
+    contextWidth = contextRect.width;
+    contextHeight = contextRect.height;
+
+    playbackContainer.style.width = `${startWidth}px`;
+    playbackContainer.style.height = `${startHeight}px`;
+
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = edgeToCursor(edge);
+    window.addEventListener('mousemove', doResize);
+    window.addEventListener('mouseup', stopResize);
+    event.preventDefault();
+  };
+
+  const doResize = (event) => {
+    if (!isResizing || !playbackContainer) {
+      return;
+    }
+
+    const deltaX = event.clientX - startX;
+    const deltaY = event.clientY - startY;
+    const minWidth = 320;
+    const minHeight = 220;
+
+    let newWidth = startWidth;
+    let newHeight = startHeight;
+
+    if (resizeEdge.includes('e')) {
+      newWidth = startWidth + deltaX;
+    }
+    if (resizeEdge.includes('w')) {
+      newWidth = startWidth - deltaX;
+    }
+    if (resizeEdge.includes('s')) {
+      newHeight = startHeight + deltaY;
+    }
+    if (resizeEdge.includes('n')) {
+      newHeight = startHeight - deltaY;
+    }
+
+    if (newWidth < minWidth) {
+      newWidth = minWidth;
+    }
+    if (newHeight < minHeight) {
+      newHeight = minHeight;
+    }
+
+    newWidth = Math.min(newWidth, contextWidth);
+    newHeight = Math.min(newHeight, contextHeight);
+
+    playbackContainer.style.width = `${newWidth}px`;
+    playbackContainer.style.height = `${newHeight}px`;
+  };
+
+  const stopResize = () => {
+    if (!isResizing) {
+      return;
+    }
+    isResizing = false;
+    resizeEdge = '';
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+    if (playbackContext) {
+      playbackContext.style.cursor = '';
+    }
+    if (playbackContainer) {
+      playbackContainer.style.cursor = '';
+    }
+    window.removeEventListener('mousemove', doResize);
+    window.removeEventListener('mouseup', stopResize);
+  };
+
+  const updateResizeCursor = (event) => {
+    if (isResizing || !playbackContainer) {
+      return;
+    }
+    const edge = getResizeEdge(event);
+    const cursor = edgeToCursor(edge) || 'default';
+    playbackContainer.style.cursor = cursor;
+    if (playbackContext) {
+      playbackContext.style.cursor = cursor;
+    }
+  };
+
+  const resizeEventTarget = playbackContext || playbackContainer;
+  if (resizeEventTarget && playbackContainer) {
+    resizeEventTarget.addEventListener('mousemove', updateResizeCursor);
+    resizeEventTarget.addEventListener('mouseleave', () => {
+      if (!isResizing) {
+        playbackContainer.style.cursor = 'default';
+        if (playbackContext) {
+          playbackContext.style.cursor = 'default';
+        }
+      }
+    });
+    resizeEventTarget.addEventListener('mousedown', startResize);
+  }
+
+  let isMinimized = false;
+  let beforeMinimizeHeight = 450;
+
+  if (playbackMinimizeBtn) {
+    playbackMinimizeBtn.addEventListener('click', () => {
+      isMinimized = !isMinimized;
+      if (isMinimized) {
+        beforeMinimizeHeight = playbackContainer.offsetHeight;
+        playbackContainer.style.height = '40px';
+        playbackContainer.style.overflow = 'hidden';
+        playbackMinimizeBtn.textContent = '+';
+      } else {
+        playbackContainer.style.height = `${beforeMinimizeHeight}px`;
+        playbackContainer.style.overflow = 'visible';
+        playbackMinimizeBtn.textContent = '−';
+      }
+    });
+  }
+
+  if (playbackMaximizeBtn) {
+    playbackMaximizeBtn.addEventListener('click', () => {
+      const isMaximized = playbackContainer.style.width === '90vw' || playbackContainer.classList.contains('maximized');
+      if (!isMaximized) {
+        playbackContainer.style.left = '50%';
+        playbackContainer.style.top = '50%';
+        playbackContainer.style.transform = 'translate(-50%, -50%)';
+        playbackContainer.style.width = '90vw';
+        playbackContainer.style.height = '90vh';
+        playbackContainer.classList.add('maximized');
+        playbackMaximizeBtn.textContent = '⊡';
+      } else {
+        playbackContainer.style.width = '680px';
+        playbackContainer.style.height = '450px';
+        playbackContainer.classList.remove('maximized');
+        playbackMaximizeBtn.textContent = '⛶';
+      }
+    });
+  }
+
+  // Play/Pause/Skip button setup
+  const playBtn = document.getElementById('play-button');
+  const pauseBtn = document.getElementById('pause-btn');
+  const skipPrevBtn = document.getElementById('skip-prev');
+  let isPaused = false;
+  let playbackTimerId = null;
+  let playbackStartTs = 0;
+  let playbackPausedTs = 0;
+  let playbackPausedAccumulatedMs = 0;
+  let playbackEstimatedTotalMs = 0;
+  let playbackExpectedChars = 0;
+  let playbackStaticEstimateMs = 0;
+  let playbackPauseMarkers = [];
+  let playbackTotalPauseMs = 0;
+  let playbackConfiguredMsPerChar = 50;
+  let playbackObservedMsPerChar = 50;
+
+  const formatTimeMs = (ms) => {
+    const safe = Math.max(0, Math.round(Number(ms) || 0));
+    const totalSeconds = Math.floor(safe / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  };
+
+  const setTimeDisplay = (elapsedMs = 0, totalMs = 0) => {
+    if (!timeDisplay) {
+      return;
+    }
+    timeDisplay.textContent = `${formatTimeMs(elapsedMs)} / ${formatTimeMs(totalMs)}`;
+  };
+
+  const stopPlaybackTimer = () => {
+    if (playbackTimerId) {
+      clearInterval(playbackTimerId);
+      playbackTimerId = null;
+    }
+  };
+
+  const analyzePlaybackString = (playbackContent) => {
+    const text = typeof playbackContent === 'string' ? playbackContent : '';
+    let typedChars = 0;
+    let pauseMs = 0;
+    const pauseMarkers = [];
+
+    for (let index = 0; index < text.length;) {
+      const char = text[index];
+      if (char === '^') {
+        if (text[index + 1] === '^') {
+          typedChars += 1;
+          index += 2;
+          continue;
+        }
+
+        let cursor = index + 1;
+        let digits = '';
+        while (cursor < text.length && /[0-9]/.test(text[cursor])) {
+          digits += text[cursor];
+          cursor += 1;
+        }
+
+        if (digits) {
+          const duration = Math.max(0, Number.parseInt(digits, 10) || 0);
+          pauseMs += duration;
+          pauseMarkers.push({ atChar: typedChars, duration });
+          index = cursor;
+          continue;
+        }
+      }
+
+      typedChars += 1;
+      index += 1;
+    }
+
+    return {
+      typedChars,
+      pauseMs,
+      pauseMarkers,
+    };
+  };
+
+  const getConsumedPauseMs = (typedCharsNow) => {
+    if (!Array.isArray(playbackPauseMarkers) || playbackPauseMarkers.length === 0) {
+      return 0;
+    }
+    let consumed = 0;
+    for (let i = 0; i < playbackPauseMarkers.length; i += 1) {
+      const marker = playbackPauseMarkers[i];
+      if (typedCharsNow >= marker.atChar) {
+        consumed += marker.duration;
+      }
+    }
+    return consumed;
+  };
+
+  const getRemainingPauseMs = (typedCharsNow) => {
+    return Math.max(0, playbackTotalPauseMs - getConsumedPauseMs(typedCharsNow));
+  };
+
+  const estimatePlaybackTotalMs = (playbackContent) => {
+    const analysis = analyzePlaybackString(playbackContent);
+    const speedMsPerChar = Math.max(1, Number(speedSlider ? speedSlider.value : 50) || 50);
+    const startDelayMs = 350;
+    playbackExpectedChars = analysis.typedChars;
+    playbackPauseMarkers = analysis.pauseMarkers;
+    playbackTotalPauseMs = analysis.pauseMs;
+    playbackConfiguredMsPerChar = speedMsPerChar;
+    playbackObservedMsPerChar = speedMsPerChar;
+    return Math.max(0, Math.round(startDelayMs + playbackExpectedChars * speedMsPerChar + playbackTotalPauseMs));
+  };
+
+  const getElapsedPlaybackMs = () => {
+    if (!playbackStartTs) {
+      return 0;
+    }
+    const now = performance.now();
+    const pausedContribution = playbackPausedTs ? now - playbackPausedTs : 0;
+    return Math.max(0, now - playbackStartTs - playbackPausedAccumulatedMs - pausedContribution);
+  };
+
+  const tickPlaybackTime = () => {
+    if (!playbackStartTs) {
+      setTimeDisplay(0, playbackEstimatedTotalMs);
+      return;
+    }
+    const elapsed = getElapsedPlaybackMs();
+    const typedCharsNow = Math.max(0, (bufferTarget && typeof bufferTarget.textContent === 'string')
+      ? bufferTarget.textContent.length
+      : 0);
+
+    if (typedCharsNow >= 1 && playbackExpectedChars > 0) {
+      const startDelayMs = 350;
+      const consumedPauseMs = getConsumedPauseMs(typedCharsNow);
+      const observedTypingElapsed = Math.max(0, elapsed - startDelayMs - consumedPauseMs);
+
+      if (observedTypingElapsed > 0) {
+        const observedMsPerChar = observedTypingElapsed / typedCharsNow;
+        const minMsPerChar = playbackConfiguredMsPerChar * 0.6;
+        const maxMsPerChar = playbackConfiguredMsPerChar * 5;
+        const adjustedMsPerChar = Math.min(maxMsPerChar, Math.max(minMsPerChar, observedMsPerChar));
+
+        playbackObservedMsPerChar = (playbackObservedMsPerChar * 0.85) + (adjustedMsPerChar * 0.15);
+
+        const remainingChars = Math.max(0, playbackExpectedChars - typedCharsNow);
+        const remainingPauseMs = getRemainingPauseMs(typedCharsNow);
+        const etaMs = remainingChars * playbackObservedMsPerChar + remainingPauseMs;
+        const projectedTotal = elapsed + etaMs;
+        playbackEstimatedTotalMs = Math.max(elapsed, Math.round(projectedTotal));
+      }
+    }
+
+    playbackEstimatedTotalMs = Math.max(playbackEstimatedTotalMs || playbackStaticEstimateMs, elapsed);
+    setTimeDisplay(elapsed, playbackEstimatedTotalMs);
+  };
+
+  const startPlaybackTimer = (playbackContent) => {
+    stopPlaybackTimer();
+    playbackStaticEstimateMs = estimatePlaybackTotalMs(playbackContent);
+    playbackEstimatedTotalMs = playbackStaticEstimateMs;
+    playbackStartTs = performance.now();
+    playbackPausedTs = 0;
+    playbackPausedAccumulatedMs = 0;
+    tickPlaybackTime();
+    playbackTimerId = window.setInterval(tickPlaybackTime, 100);
+  };
+
+  const pausePlaybackTimer = () => {
+    if (!playbackStartTs || playbackPausedTs) {
+      return;
+    }
+    playbackPausedTs = performance.now();
+    tickPlaybackTime();
+  };
+
+  const resumePlaybackTimer = () => {
+    if (!playbackStartTs || !playbackPausedTs) {
+      return;
+    }
+    playbackPausedAccumulatedMs += performance.now() - playbackPausedTs;
+    playbackPausedTs = 0;
+    tickPlaybackTime();
+  };
+
+  const completePlaybackTimer = () => {
+    const elapsed = getElapsedPlaybackMs();
+    stopPlaybackTimer();
+    const finalTotal = Math.max(elapsed, playbackEstimatedTotalMs || playbackStaticEstimateMs);
+    setTimeDisplay(finalTotal, finalTotal);
+    playbackStartTs = 0;
+    playbackPausedTs = 0;
+    playbackPausedAccumulatedMs = 0;
+    playbackExpectedChars = 0;
+    playbackStaticEstimateMs = 0;
+    playbackPauseMarkers = [];
+    playbackTotalPauseMs = 0;
+    playbackConfiguredMsPerChar = 50;
+    playbackObservedMsPerChar = 50;
+  };
+
+  const pauseTyping = () => {
+    if (!typedInstance) {
+      return false;
+    }
+    pausePlaybackTimer();
+    if (typeof typedInstance.stop === 'function') {
+      typedInstance.stop();
+      return true;
+    }
+    if (typeof typedInstance.pause === 'function') {
+      typedInstance.pause();
+      return true;
+    }
+    return false;
+  };
+
+  const resumeTyping = () => {
+    if (!typedInstance) {
+      return false;
+    }
+    resumePlaybackTimer();
+    if (typeof typedInstance.start === 'function') {
+      typedInstance.start();
+      return true;
+    }
+    if (typeof typedInstance.resume === 'function') {
+      typedInstance.resume();
+      return true;
+    }
+    return false;
+  };
+
+  if (playBtn) {
+    playBtn.addEventListener('click', () => {
+      if (!typedInstance) {
+        isPaused = false;
+        startTyping();
+      } else if (isPaused) {
+        isPaused = !resumeTyping() ? isPaused : false;
+      }
+    });
+  }
+
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', () => {
+      if (typedInstance && !isPaused) {
+        isPaused = pauseTyping();
+      }
+    });
+  }
+
+  if (skipPrevBtn) {
+    skipPrevBtn.addEventListener('click', () => {
+      isPaused = false;
+      startTyping();
+    });
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && typedInstance && !isPaused) {
+      isPaused = pauseTyping();
+    }
+  });
 
   const PLACEHOLDER = '// Paste code and hit Play Typing.';
   const MAX_EXPORT_LENGTH = 12000;
@@ -239,15 +835,22 @@
   };
 
   const DEFAULT_RESET_LIMIT = 2400;
+  const FONT_FAMILIES = {
+    hack: '"JetBrains Mono", "Fira Code", "Source Code Pro", Consolas, monospace',
+    firacode: '"Fira Code", "JetBrains Mono", "Source Code Pro", Consolas, monospace',
+    sourcecodepro: '"Source Code Pro", "Fira Code", "JetBrains Mono", Consolas, monospace',
+    consolas: 'Consolas, "Source Code Pro", "Fira Code", "JetBrains Mono", monospace',
+  };
 
   let activeThemeKey = 'panda';
+  let activeFontKey = 'hack';
   let stageWidth = BASE_STAGE.width;
   let stageMinHeight = BASE_STAGE.minCodeHeight;
   let resetHeightLimit = DEFAULT_RESET_LIMIT;
   let typedInstance = null;
   let isExporting = false;
   let STAGE_THEME = { ...BASE_STAGE, ...THEMES[activeThemeKey] };
-  let showLineNumbers = false;
+  let showLineNumbers = true;
   let manualLanguage = 'auto';
 
   const ensureThemeDefaults = () => {
@@ -279,7 +882,7 @@
     'hljs-name': theme.propertyColor || theme.keywordColor,
     'hljs-attr': theme.attributeColor,
     'hljs-attribute': theme.attributeColor,
-    'hljs-attribute .hljs-name': theme.attributeColor,
+    'hljs-attribute.hljs-name': theme.attributeColor,
     'hljs-attr-name': theme.attributeColor,
     'hljs-literal': theme.booleanColor || theme.numberColor,
     'hljs-literal.boolean-literal': theme.booleanColor || theme.numberColor,
@@ -301,7 +904,7 @@
     'hljs-title.class_.inherited__': theme.constantColor || theme.functionColor,
     'hljs-function': theme.functionColor,
     'hljs-string': theme.stringColor,
-    'hljs-string .hljs-subst': theme.variableBuiltinColor || theme.stringColor,
+    'hljs-string.hljs-subst': theme.variableBuiltinColor || theme.stringColor,
     'hljs-symbol': theme.propertyColor,
     'hljs-property': theme.propertyColor,
     'hljs-class': theme.propertyColor,
@@ -313,8 +916,8 @@
     'hljs-hexcolor': theme.colorLiteralColor || theme.numberColor,
     'hljs-color': theme.colorLiteralColor || theme.numberColor,
     'hljs-meta': theme.metaColor,
-    'hljs-meta .hljs-keyword': theme.metaColor,
-    'hljs-meta .hljs-string': theme.stringColor,
+    'hljs-meta.hljs-keyword': theme.metaColor,
+    'hljs-meta.hljs-string': theme.stringColor,
     'hljs-doctag': theme.metaColor || theme.keywordColor,
     'hljs-subst': theme.variableBuiltinColor || theme.variableColor,
     'hljs-bullet': theme.constantColor || theme.metaColor,
@@ -328,6 +931,47 @@
 
   const activeCompilationUrls = new Set();
   let compilationCount = 0;
+  let settingsPaneVisible = true;
+  let settingsPaneLastWidth = 280;
+
+  const setSettingsPaneVisible = (visible) => {
+    if (!settingsPane) {
+      return;
+    }
+
+    settingsPaneVisible = Boolean(visible);
+
+    if (settingsPaneVisible) {
+      const widthToApply = Math.max(220, settingsPaneLastWidth || 280);
+      settingsPane.style.width = `${widthToApply}px`;
+      settingsPane.style.minWidth = '';
+      settingsPane.style.borderLeftWidth = '';
+      settingsPane.style.overflowY = 'auto';
+      settingsPane.style.padding = '';
+      if (settingsResizeHandle) {
+        settingsResizeHandle.style.display = '';
+      }
+    } else {
+      const currentWidth = settingsPane.getBoundingClientRect().width;
+      if (currentWidth > 40) {
+        settingsPaneLastWidth = Math.round(currentWidth);
+      }
+      settingsPane.style.width = '0px';
+      settingsPane.style.minWidth = '0px';
+      settingsPane.style.borderLeftWidth = '0px';
+      settingsPane.style.overflow = 'hidden';
+      settingsPane.style.padding = '0';
+      if (settingsResizeHandle) {
+        settingsResizeHandle.style.display = 'none';
+      }
+    }
+
+    if (settingsButton) {
+      settingsButton.setAttribute('aria-pressed', settingsPaneVisible ? 'true' : 'false');
+      settingsButton.classList.toggle('text-white', settingsPaneVisible);
+      settingsButton.classList.toggle('text-slate-300', !settingsPaneVisible);
+    }
+  };
 
   const ensureCompilationPlaceholder = () => {
     if (!compilationList) {
@@ -453,6 +1097,24 @@
     root.style.setProperty('--stage-width', `${stageWidth}px`);
     root.style.setProperty('--code-min-height', `${stageMinHeight}px`);
     root.style.setProperty('--line-number-gutter', `${STAGE_THEME.lineNumberGutterWidth || 48}px`);
+    root.style.setProperty('--font-code', STAGE_THEME.fontFamily || BASE_STAGE.fontFamily);
+  };
+
+  const getFontFamilyFromKey = (fontKey) => FONT_FAMILIES[fontKey] || FONT_FAMILIES.hack;
+
+  const applyActiveFontFamily = ({ rerender = true } = {}) => {
+    STAGE_THEME.fontFamily = getFontFamilyFromKey(activeFontKey);
+    if (textarea) {
+      textarea.style.fontFamily = STAGE_THEME.fontFamily;
+      syncSourceEditorMetrics();
+    }
+    applyThemeToRoot();
+    if (fontSelect && fontSelect.value !== activeFontKey) {
+      fontSelect.value = activeFontKey;
+    }
+    if (rerender) {
+      applyHighlight();
+    }
   };
 
   const updateStageWidthUI = () => {
@@ -591,80 +1253,16 @@
   };
 
   const enforceHeightReset = () => {
-    if (isResettingHeight) {
+    const codeDisplay = document.querySelector('.code-display');
+
+    if (!codeDisplay) {
       return false;
     }
 
-    if (!resetHeightLimit || resetHeightLimit <= 0) {
-      return false;
-    }
-
-    if (!highlightTarget || !bufferTarget) {
-      return false;
-    }
-
-  const originalBuffer = bufferTarget.textContent || '';
-  const originalLineCount = countLines(originalBuffer);
-    if (!originalBuffer) {
-      return false;
-    }
-
-    const currentHeight = highlightTarget.scrollHeight;
-    if (currentHeight <= resetHeightLimit) {
-      return false;
-    }
-
-    isResettingHeight = true;
-    const showCursor = typedInstance && !typedInstance.typingComplete;
-    const renderBuffer = (text) => {
-      const highlighted = text ? highlightCode(text) : '';
-      renderHighlightedInto(highlightTarget, highlighted, { showCursor });
-    };
-
-    let trimmed = originalBuffer;
-    let didTrim = false;
-    let guard = 0;
-    const MAX_PASSES = 5000;
-    const CHUNK_SIZE = 120;
-
-    while (trimmed && highlightTarget.scrollHeight > resetHeightLimit) {
-      const newlineIndex = trimmed.indexOf('\n');
-      if (newlineIndex === -1) {
-        trimmed = trimmed.slice(Math.min(CHUNK_SIZE, trimmed.length));
-      } else {
-        trimmed = trimmed.slice(newlineIndex + 1);
-      }
-      bufferTarget.textContent = trimmed;
-      renderBuffer(trimmed);
-      didTrim = true;
-      guard += 1;
-      if (guard > MAX_PASSES) {
-        break;
-      }
-    }
-
-    if (!trimmed && highlightTarget.scrollHeight > resetHeightLimit) {
-      bufferTarget.textContent = '';
-      renderBuffer('');
-      didTrim = true;
-    }
-
-    if (didTrim) {
-      const finalBuffer = bufferTarget.textContent || '';
-      const finalLineCount = countLines(finalBuffer);
-      const removedLines = Math.max(0, originalLineCount - finalLineCount);
-      if (removedLines > 0) {
-        lineNumberOffset += removedLines;
-      }
-      const removedChars = (originalBuffer || '').length - finalBuffer.length;
-      if (removedChars > 0) {
-        queueTypedFrontTrim(removedChars);
-      }
-      renderBuffer(finalBuffer);
-    }
-
-    isResettingHeight = false;
-    return didTrim;
+    codeDisplay.style.maxHeight = 'none';
+    codeDisplay.style.overflowX = 'auto';
+    codeDisplay.style.overflowY = 'auto';
+    return false;
   };
 
   const applyResetHeightLimit = (value) => {
@@ -692,6 +1290,7 @@
 
     activeThemeKey = themeKey;
     STAGE_THEME = { ...BASE_STAGE, ...nextTheme };
+    STAGE_THEME.fontFamily = getFontFamilyFromKey(activeFontKey);
   ensureThemeDefaults();
     syncStageMetrics();
     highlightColorMap = buildHighlightMap(STAGE_THEME);
@@ -741,11 +1340,15 @@
       }
     }
 
-    // Check for composite mappings (e.g., "hljs-meta hljs-keyword")
-    const joined = classes.join(' ');
-    const compositeKey = Object.keys(highlightColorMap).find((key) => key.includes('.') && joined.includes(key.replace(/\s*\.\s*/g, ' ')));
-    if (compositeKey && highlightColorMap[compositeKey]) {
-      return highlightColorMap[compositeKey];
+    // Check for composite mappings (e.g., "hljs-meta.hljs-keyword")
+    // Try matching combinations of classes in reverse order for specificity
+    for (let i = classes.length - 1; i >= 0; i -= 1) {
+      for (let j = i - 1; j >= 0; j -= 1) {
+        const compositeKey = `${classes[j]}.${classes[i]}`;
+        if (highlightColorMap[compositeKey]) {
+          return highlightColorMap[compositeKey];
+        }
+      }
     }
 
     return highlightColorMap.default;
@@ -1595,12 +2198,71 @@ greet('Creator');`;
     }
   };
 
+  const getExportButtonLabelTarget = () => {
+    if (!exportButton) {
+      return null;
+    }
+    return exportButton.querySelector('.truncate') || exportButton;
+  };
+
+  const exportButtonBaseLabel = (() => {
+    const labelTarget = getExportButtonLabelTarget();
+    if (!labelTarget) {
+      return 'Export GIF';
+    }
+    const text = (labelTarget.textContent || '').trim();
+    return text || 'Export GIF';
+  })();
+
+  const setExportProgress = (percent = 0, phase = 'Exporting') => {
+    if (!exportButton) {
+      return;
+    }
+
+    const clamped = Math.max(0, Math.min(100, Number.isFinite(percent) ? Math.round(percent) : 0));
+    exportButton.classList.add('is-exporting');
+    exportButton.style.setProperty('--export-progress', `${clamped}%`);
+    exportButton.setAttribute('aria-busy', 'true');
+    exportButton.setAttribute('aria-valuemin', '0');
+    exportButton.setAttribute('aria-valuemax', '100');
+    exportButton.setAttribute('aria-valuenow', String(clamped));
+    exportButton.setAttribute('aria-valuetext', `${phase} ${clamped}%`);
+
+    const labelTarget = getExportButtonLabelTarget();
+    if (labelTarget) {
+      labelTarget.textContent = `${phase} ${clamped}%`;
+    }
+  };
+
+  const resetExportProgress = () => {
+    if (!exportButton) {
+      return;
+    }
+
+    exportButton.classList.remove('is-exporting');
+    exportButton.style.setProperty('--export-progress', '0%');
+    exportButton.setAttribute('aria-busy', 'false');
+    exportButton.removeAttribute('aria-valuemin');
+    exportButton.removeAttribute('aria-valuemax');
+    exportButton.removeAttribute('aria-valuenow');
+    exportButton.removeAttribute('aria-valuetext');
+
+    const labelTarget = getExportButtonLabelTarget();
+    if (labelTarget) {
+      labelTarget.textContent = exportButtonBaseLabel;
+    }
+  };
+
   const getNormalizedContent = () => {
     const raw = textarea.value.replace(/\r\n/g, '\n');
     return raw.trim() ? raw : PLACEHOLDER;
   };
 
   const destroyTyped = () => {
+    stopPlaybackTimer();
+    playbackStartTs = 0;
+    playbackPausedTs = 0;
+    playbackPausedAccumulatedMs = 0;
     if (typedInstance) {
       typedInstance._queuedFrontTrim = 0;
       typedInstance.destroy();
@@ -1774,6 +2436,24 @@ greet('Creator');`;
   };
 
   let typedTrimPatchApplied = false;
+  let typedTimingPatchApplied = false;
+
+  const ensureTypedTimingPatch = () => {
+    if (typedTimingPatchApplied) {
+      return;
+    }
+
+    if (typeof Typed === 'undefined' || !Typed || !Typed.prototype) {
+      return;
+    }
+
+    Typed.prototype.humanizer = function fixedHumanizer() {
+      const speed = Number(this.typeSpeed);
+      return Number.isFinite(speed) ? Math.max(1, Math.round(speed)) : 1;
+    };
+
+    typedTimingPatchApplied = true;
+  };
 
   const ensureTypedTrimPatch = () => {
     if (typedTrimPatchApplied) {
@@ -1821,7 +2501,8 @@ greet('Creator');`;
     Typed.prototype._consumeFrontTrim = consumeFrontTrim;
 
     const patchedKeepTyping = function patchedKeepTyping(currentString, indexBeforeStep, step) {
-      const effectiveStep = Number.isFinite(step) ? step : 0;
+      const normalizedStep = Number.isFinite(step) ? Math.max(1, Math.floor(step)) : 1;
+      const effectiveStep = Math.min(1, normalizedStep);
       if (indexBeforeStep === 0) {
         this.toggleBlinking(!1);
         this.options.preStringTyped(this.arrayPos, this);
@@ -1941,6 +2622,7 @@ greet('Creator');`;
   const startTyping = () => {
     const content = getNormalizedContent();
     setStatus('');
+    isPaused = false;
 
     lineNumberOffset = 0;
     destroyTyped();
@@ -1948,7 +2630,9 @@ greet('Creator');`;
     applyHighlight();
 
     const playbackContent = applyWaitDirectivesToPlayback(content);
+    startPlaybackTimer(playbackContent);
 
+    ensureTypedTimingPatch();
     ensureTypedTrimPatch();
 
     typedInstance = new Typed('#typed-buffer', {
@@ -1965,7 +2649,10 @@ greet('Creator');`;
       onStringTyped: () => applyHighlight(),
       onTypingPaused: () => applyHighlight(),
       onTypingResumed: () => applyHighlight(),
-      onComplete: () => applyHighlight(),
+      onComplete: () => {
+        applyHighlight();
+        completePlaybackTimer();
+      },
     });
 
     if (typedInstance) {
@@ -2025,7 +2712,13 @@ greet('Creator');`;
     textarea.readOnly = disabled;
   };
 
-  const renderGif = (gif) => new Promise((resolve, reject) => {
+  const renderGif = (gif, { onProgress } = {}) => new Promise((resolve, reject) => {
+    gif.on('progress', (progress) => {
+      if (typeof onProgress === 'function') {
+        const safeProgress = Number.isFinite(progress) ? progress : 0;
+        onProgress(Math.max(0, Math.min(1, safeProgress)));
+      }
+    });
     gif.on('finished', (blob) => resolve(blob));
     gif.on('abort', () => reject(new Error('GIF rendering aborted.')));
     gif.render();
@@ -2049,6 +2742,7 @@ greet('Creator');`;
       isExporting = true;
       toggleControls(true);
       setStatus(`Rendering ${label}…`);
+      setExportProgress(0, 'Preparing');
 
       const { content: exportContent, pauses: waitPauses } = prepareContentForExport(content);
       const renderer = createCanvasRenderer();
@@ -2158,6 +2852,11 @@ greet('Creator');`;
           setStatus(`Rendering ${label}… ${percent}% (${processedFrames}/${estimatedFrames})`);
         }
 
+        if (estimatedFrames > 0) {
+          const prepProgress = Math.min(70, Math.round((processedFrames / estimatedFrames) * 70));
+          setExportProgress(prepProgress, 'Preparing');
+        }
+
         if (processedFrames % 10 === 0) {
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
@@ -2210,9 +2909,17 @@ greet('Creator');`;
       }
 
       setStatus(`Finalizing ${label}…`);
+      setExportProgress(72, 'Encoding');
 
-      const blob = await renderGif(gif);
+      const blob = await renderGif(gif, {
+        onProgress: (progressRatio) => {
+          const encodingProgress = 72 + Math.round(progressRatio * 28);
+          setExportProgress(Math.min(100, encodingProgress), 'Encoding');
+        },
+      });
       const url = URL.createObjectURL(blob);
+
+      setExportProgress(100, 'Done');
 
     frameDelays.length = 0;
 
@@ -2249,10 +2956,26 @@ greet('Creator');`;
       toggleControls(false);
       textarea.readOnly = false;
       isExporting = false;
+      resetExportProgress();
     }
   };
 
-  runButton.addEventListener('click', startTyping);
+  if (runButton) {
+    runButton.addEventListener('click', () => {
+      destroyTyped();
+      lineNumberOffset = 0;
+      bufferTarget.textContent = '';
+      applyHighlight();
+      setStatus('');
+      startTyping();
+    });
+  }
+
+  if (settingsButton) {
+    settingsButton.addEventListener('click', () => {
+      setSettingsPaneVisible(!settingsPaneVisible);
+    });
+  }
 
   clearButton.addEventListener('click', () => {
     textarea.value = '';
@@ -2340,12 +3063,62 @@ greet('Creator');`;
     });
   }
 
-  if (lineNumberToggle && codeFrame) {
-    lineNumberToggle.addEventListener('change', (event) => {
-      showLineNumbers = Boolean(event.target.checked);
-      codeFrame.classList.toggle('line-numbers-enabled', showLineNumbers);
-      applyHighlight();
+  if (fontSelect) {
+    fontSelect.addEventListener('change', (event) => {
+      const nextKey = event.target.value;
+      if (!nextKey || nextKey === activeFontKey) {
+        return;
+      }
+      activeFontKey = nextKey;
+      applyActiveFontFamily();
     });
+  }
+
+  const isCheckboxToggle = lineNumberToggle && lineNumberToggle.tagName === 'INPUT' && lineNumberToggle.type === 'checkbox';
+
+  const readLineNumberToggleState = () => {
+    if (!lineNumberToggle) {
+      return showLineNumbers;
+    }
+
+    if (isCheckboxToggle) {
+      return Boolean(lineNumberToggle.checked);
+    }
+
+    if (lineNumberToggle.hasAttribute('aria-pressed')) {
+      return lineNumberToggle.getAttribute('aria-pressed') === 'true';
+    }
+
+    return lineNumberToggle.classList.contains('bg-primary');
+  };
+
+  const applyLineNumberState = (enabled, { rerender = true } = {}) => {
+    showLineNumbers = Boolean(enabled);
+    if (codeFrame) {
+      codeFrame.classList.toggle('line-numbers-enabled', showLineNumbers);
+    }
+
+    if (lineNumberToggle && !isCheckboxToggle) {
+      lineNumberToggle.setAttribute('aria-pressed', showLineNumbers ? 'true' : 'false');
+      lineNumberToggle.classList.toggle('bg-primary', showLineNumbers);
+      lineNumberToggle.classList.toggle('bg-slate-600', !showLineNumbers);
+    }
+
+    if (rerender) {
+      applyHighlight();
+    }
+  };
+
+  if (lineNumberToggle && codeFrame) {
+    if (isCheckboxToggle) {
+      lineNumberToggle.addEventListener('change', (event) => {
+        applyLineNumberState(Boolean(event.target.checked));
+      });
+    } else {
+      lineNumberToggle.addEventListener('click', () => {
+        applyLineNumberState(!showLineNumbers);
+      });
+    }
   }
 
   if (languageInput) {
@@ -2433,8 +3206,31 @@ greet('Creator');`;
   });
 
   if (lineNumberToggle && codeFrame) {
-    showLineNumbers = Boolean(lineNumberToggle.checked);
+    applyLineNumberState(true, { rerender: false });
+  } else if (codeFrame) {
     codeFrame.classList.toggle('line-numbers-enabled', showLineNumbers);
+  }
+
+  if (playbackTitle) {
+    playbackTitle.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        playbackTitle.blur();
+      }
+    });
+
+    playbackTitle.addEventListener('blur', () => {
+      playbackTitle.textContent = playbackTitle.textContent.replace(/[\r\n]+/g, ' ').trim() || 'code.js — bash';
+    });
+  }
+
+  if (settingsPane) {
+    const initialWidth = Math.round(settingsPane.getBoundingClientRect().width);
+    if (initialWidth > 40) {
+      settingsPaneLastWidth = initialWidth;
+      settingsPaneVisible = true;
+    }
+    setSettingsPaneVisible(settingsPaneVisible);
   }
 
   if (languageInput) {
@@ -2445,8 +3241,106 @@ greet('Creator');`;
     applyGifSpeedMultiplier(gifSpeedMultiplierInput.value);
   }
 
+  setTimeDisplay(0, 0);
+
   textarea.value = demoSnippet;
+  
+  // Trigger initial highlighting update
+  console.log('Calling updateHighlighting from initialization');
+  setTimeout(() => {
+    updateHighlighting();
+  }, 200);
+  
   updateSpeedLabel();
+  if (fontSelect && fontSelect.value) {
+    activeFontKey = fontSelect.value;
+  }
   setActiveTheme(activeThemeKey);
+  applyActiveFontFamily({ rerender: false });
   startTyping();
+
+  if (lineNumberToggle && codeFrame) {
+    applyLineNumberState(true, { rerender: true });
+  }
+
+  // Panel Resize Functionality
+  setupPanelResize();
 })();
+
+function setupPanelResize() {
+  const editorPane = document.getElementById('editor-pane');
+  const playbackPane = document.getElementById('playback-pane');
+  const settingsPane = document.getElementById('settings-pane');
+  const resizeHandleEditor = document.getElementById('resize-handle-editor');
+  const resizeHandleSettings = document.getElementById('resize-handle-settings');
+
+  if (!editorPane || !playbackPane || !settingsPane || !resizeHandleEditor || !resizeHandleSettings) {
+    return;
+  }
+
+  let isResizing = false;
+  let currentHandle = null;
+  let startX = 0;
+  let startWidthLeft = 0;
+  let startWidthRight = 0;
+
+  function startResize(handle, e) {
+    isResizing = true;
+    currentHandle = handle;
+    startX = e.clientX;
+    
+    if (handle === 'editor') {
+      startWidthLeft = editorPane.offsetWidth;
+      startWidthRight = playbackPane.offsetWidth;
+    } else if (handle === 'settings') {
+      startWidthLeft = playbackPane.offsetWidth;
+      startWidthRight = settingsPane.offsetWidth;
+    }
+    
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    
+    e.preventDefault();
+  }
+
+  function doResize(e) {
+    if (!isResizing) return;
+    
+    const deltaX = e.clientX - startX;
+    
+    if (currentHandle === 'editor') {
+      const newWidthLeft = startWidthLeft + deltaX;
+      const newWidthRight = startWidthRight - deltaX;
+      
+      if (newWidthLeft >= 300 && newWidthRight >= 400) {
+        editorPane.style.width = `${newWidthLeft}px`;
+        editorPane.style.flex = 'none';
+        playbackPane.style.flex = '1';
+      }
+    } else if (currentHandle === 'settings') {
+      const newWidthRight = startWidthRight - deltaX;
+      
+      if (newWidthRight >= 200 && newWidthRight <= 600) {
+        settingsPane.style.width = `${newWidthRight}px`;
+      }
+    }
+  }
+
+  function stopResize() {
+    isResizing = false;
+    currentHandle = null;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+
+  if (resizeHandleEditor) {
+    resizeHandleEditor.addEventListener('mousedown', (e) => startResize('editor', e));
+  }
+
+  if (resizeHandleSettings) {
+    resizeHandleSettings.addEventListener('mousedown', (e) => startResize('settings', e));
+  }
+
+  window.addEventListener('mousemove', doResize);
+  window.addEventListener('mouseup', stopResize);
+}

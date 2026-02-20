@@ -1,135 +1,427 @@
 <!DOCTYPE html>
-<html lang="en">
+<html class="dark" lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Code Typer</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/panda-syntax-dark.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <link rel="stylesheet" href="styles.css" />
+  <title>Code Typer - Editor & Preview</title>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+  <link href="styles.css?v=20260219f" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            primary: "#137fec",
+            "background-light": "#f6f7f8",
+            "background-dark": "#101922",
+            "surface-dark": "#1a242f",
+            "border-dark": "#283039",
+          },
+          fontFamily: {
+            display: ["Space Grotesk", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"],
+          },
+          borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" },
+        },
+      },
+    };
+  </script>
+  <style>
+    /* Custom scrollbar for webkit */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #101922;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #283039;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3e4a56;
+    }
+
+    /* Smooth animation for cursor */
+    @keyframes blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+    .cursor-blink {
+      animation: blink 1s infinite;
+    }
+
+    /* Canvas rendering support */
+    .code-frame {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .code-frame canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      margin: 0 auto;
+    }
+
+    #typed-target {
+      position: relative;
+      display: block;
+      min-height: min-content;
+    }
+
+    #typed-target canvas {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+
+    /* Syntax Highlighting Overlay */
+    .code-editor-wrapper {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    :root {
+      --editor-font-size: 0.75rem;
+      --editor-line-height: 1.5rem;
+      --editor-pad-top: 1rem;
+      --editor-pad-right: 1rem;
+      --editor-pad-bottom: 1rem;
+      --editor-pad-left: 3.5rem;
+      --editor-tab-size: 2;
+    }
+
+    #code-input-highlight {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: block;
+      padding: var(--editor-pad-top) var(--editor-pad-right) var(--editor-pad-bottom) var(--editor-pad-left);
+      margin: 0;
+      pointer-events: none;
+      overflow: hidden;
+      white-space: pre;
+      overflow-wrap: normal;
+      word-wrap: normal;
+      line-height: var(--editor-line-height);
+      font-size: var(--editor-font-size);
+      font-family: 'JetBrains Mono', monospace;
+      tab-size: var(--editor-tab-size);
+      color: transparent;
+      background: transparent;
+    }
+
+    #code-input-highlight code {
+      display: block;
+      margin: 0 !important;
+      padding: 0 !important;
+      font-family: inherit;
+      font-size: inherit;
+      line-height: inherit;
+      white-space: inherit !important;
+      tab-size: var(--editor-tab-size);
+    }
+
+    #code-input {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      min-height: 100%;
+      z-index: 1;
+      background: transparent !important;
+      color: transparent !important;
+      caret-color: #38bdf8;
+      -webkit-text-fill-color: transparent;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: var(--editor-font-size);
+      line-height: var(--editor-line-height);
+      padding: var(--editor-pad-top) var(--editor-pad-right) var(--editor-pad-bottom) var(--editor-pad-left) !important;
+      white-space: pre;
+      tab-size: var(--editor-tab-size);
+      letter-spacing: normal;
+      border: 0;
+      overflow: auto;
+    }
+
+    #code-input::selection {
+      background: rgba(56, 189, 248, 0.3);
+      color: transparent;
+      -webkit-text-fill-color: transparent;
+    }
+
+    #line-numbers {
+      overflow-y: auto;
+      overflow-x: hidden;
+      font-size: var(--editor-font-size);
+      line-height: var(--editor-line-height);
+      height: 100%;
+      text-align: right;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    #line-numbers::-webkit-scrollbar {
+      display: none;
+    }
+
+    #line-numbers div {
+      line-height: var(--editor-line-height);
+      height: var(--editor-line-height);
+      text-align: right;
+      white-space: nowrap;
+    }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
-<body>
-  <main class="app-shell">
-    <header class="app-header">
-      <h1>Code Typer</h1>
-  <p>Paste your code below, preview the playback, and export a share-ready GIF.</p>
-    </header>
-    <section class="app-guide" aria-label="Quick guide">
-      <h2>Quick Start</h2>
-      <ul>
-        <li><strong>Play Typing</strong> animates the editor using the speed you set in milliseconds.</li>
-        <li><strong>Tpyr.wait(2);</strong> (or <code>Tpyr.wait(750, 'ms');</code>) pauses playback without affecting the exported text.</li>
-        <li>Hidden history is trimmed automatically so long sessions stay smooth and cursor accurate.</li>
-        <li>Use <strong>Compile &amp; Save</strong> to stage GIFs in the library without downloading right away.</li>
-      </ul>
-    </section>
-    <nav class="app-nav" aria-label="Site">
-      <a class="app-nav__link" href="compiler.html">HTML Compiler</a>
-    </nav>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 font-display min-h-screen flex flex-col overflow-hidden">
+  <!-- Top Navigation -->
+  <header class="flex items-center justify-between whitespace-nowrap border-b border-solid border-border-dark px-6 py-3 bg-background-dark shrink-0">
+    <div class="flex items-center gap-4 text-white">
+      <div class="size-8 flex items-center justify-center rounded bg-primary/20 text-primary">
+        <span class="material-symbols-outlined">terminal</span>
+      </div>
+      <h2 class="text-white text-lg font-bold leading-tight tracking-[-0.015em]">Code Typer</h2>
+    </div>
+    <div class="flex gap-3">
+      <button id="settings-btn" class="flex items-center justify-center overflow-hidden rounded-lg h-9 bg-surface-dark hover:bg-border-dark transition-colors text-slate-300 gap-2 text-sm font-bold px-3 border border-border-dark">
+        <span class="material-symbols-outlined text-[18px]">settings</span>
+      </button>
+      <button id="export-gif" class="flex items-center justify-center overflow-hidden rounded-lg h-9 px-4 bg-primary hover:bg-blue-600 transition-colors text-white text-sm font-bold shadow-lg shadow-blue-900/20">
+        <span class="material-symbols-outlined text-[18px] mr-2">download</span>
+        <span class="truncate">Export GIF</span>
+      </button>
+    </div>
+  </header>
 
-    <section class="panes">
-      <div class="pane input-pane">
-        <label for="code-input">Your Code</label>
-        <textarea id="code-input" placeholder="Paste or type your code here..."></textarea>
-        <div class="controls">
-          <label class="speed-label" for="speed">Speed</label>
-          <input id="speed" type="range" min="1" max="200" value="5" />
-          <input id="speed-input" type="number" min="1" max="200" value="5" aria-label="Speed in milliseconds" />
-          <span id="speed-value" aria-live="polite">5 ms</span>
-          <label class="theme-label" for="theme-select">Theme</label>
-          <select id="theme-select" aria-label="Code theme selector">
-            <option value="panda">Panda Syntax</option>
-            <option value="midnight">Midnight Vapor</option>
-            <option value="sunset">Sunset Glow</option>
-            <option value="forest">Forest Mist</option>
-            <option value="ocean">Oceanic Wave</option>
-            <option value="crimson">Crimson Pulse</option>
-            <option value="mono">Mono Noir</option>
-          </select>
-          <label class="combo-label" for="language-input">Language</label>
-          <div class="combo-input">
-            <input id="language-input" list="language-options" value="auto" aria-label="Code language override" />
-            <datalist id="language-options">
-              <option value="auto">Auto (detect)</option>
-              <option value="javascript">JavaScript</option>
-              <option value="typescript">TypeScript</option>
-              <option value="html">HTML</option>
-              <option value="css">CSS</option>
-              <option value="json">JSON</option>
-              <option value="python">Python</option>
-              <option value="java">Java</option>
-              <option value="csharp">C#</option>
-              <option value="cpp">C++</option>
-              <option value="go">Go</option>
-              <option value="php">PHP</option>
-              <option value="ruby">Ruby</option>
-              <option value="bash">Bash</option>
-              <option value="markdown">Markdown</option>
-              <option value="yaml">YAML</option>
-              <option value="sql">SQL</option>
-              <option value="plaintext">Plain text</option>
-            </datalist>
+  <!-- Main Workspace -->
+  <div class="flex flex-1 overflow-hidden">
+    <!-- Left Pane: Code Editor -->
+    <div id="editor-pane" class="flex flex-col min-w-[300px] border-r border-border-dark bg-[#0d1117] relative group" style="width: 32%;">
+      <div class="flex items-center justify-between px-4 py-2 border-b border-border-dark bg-surface-dark/50">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-slate-500 text-[16px]">code</span>
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Source Code</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500">Auto-saved</span>
+        </div>
+      </div>
+      <div class="flex-1 overflow-hidden p-0 font-mono text-sm relative">
+        <!-- Line Numbers Column -->
+        <div class="absolute left-0 top-0 bottom-0 w-12 bg-[#0d1117] border-r border-border-dark/50 py-4 pr-3 text-slate-600 select-none pointer-events-none z-20 text-xs" style="line-height: 1.5rem;">
+          <div id="line-numbers"></div>
+        </div>
+        <!-- Code Editor with Syntax Highlighting -->
+        <div class="code-editor-wrapper">
+          <pre id="code-input-highlight" class="hljs" aria-hidden="true"><code class="language-javascript"></code></pre>
+          <textarea id="code-input" class="bg-transparent text-slate-300 p-4 pl-14 focus:outline-none resize-none selection:bg-primary/30 font-mono whitespace-pre" style="font-size: 0.75rem; line-height: 1.5rem;" spellcheck="false">// Welcome to Code Typer!
+// Start typing your code here...
+
+function init() {
+  console.log("Initializing system...");
+  
+  Tpyr.wait(1000); // Pause for effect
+  
+  const user = {
+    name: "Developer",
+    level: 9000
+  };
+
+  return user;
+}
+
+init();</textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Resize Handle: Editor/Playback -->
+    <div id="resize-handle-editor" class="w-1 bg-border-dark hover:bg-primary cursor-col-resize transition-colors relative group" title="Drag to resize">
+      <div class="absolute inset-y-0 -left-1 -right-1"></div>
+    </div>
+
+    <!-- Right Pane: Live Stage & Preview -->
+    <div id="playback-pane" class="flex flex-col bg-background-dark min-w-[400px] relative" style="flex: 1;">
+      <!-- Toolbar -->
+      <div class="h-14 border-b border-border-dark flex items-center justify-between px-6 bg-surface-dark z-20">
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-1">
+            <button id="skip-prev" class="p-1 rounded text-slate-400 hover:text-white" title="Previous">
+              <span class="material-symbols-outlined text-[16px]">skip_previous</span>
+            </button>
+            <button id="play-button" class="p-1 rounded text-primary hover:text-blue-400" title="Play">
+              <span class="material-symbols-outlined text-[16px]">play_arrow</span>
+            </button>
+            <button id="pause-btn" class="p-1 rounded text-slate-400 hover:text-white" title="Pause">
+              <span class="material-symbols-outlined text-[16px]">pause</span>
+            </button>
           </div>
-          <label class="toggle-label" for="toggle-line-numbers">
-            <input id="toggle-line-numbers" type="checkbox" />
-            Show line numbers
-          </label>
-          <button id="run">Play Typing</button>
-          <button id="export-gif">Export GIF</button>
-          <label class="toggle-label" for="fast-export-toggle">
-            <input id="fast-export-toggle" type="checkbox" />
-            Fast export
-          </label>
-          <label class="multiplier-label" for="gif-speed-multiplier">GIF speed</label>
-          <input id="gif-speed-multiplier" type="number" min="0.1" max="5" step="0.1" value="1" aria-label="GIF speed multiplier" />
-          <button id="clear">Clear</button>
-          <span id="export-status" aria-live="polite"></span>
+          <div class="h-6 w-px bg-border-dark"></div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-medium text-slate-400">Speed</span>
+            <input id="speed" class="w-24 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-primary" max="200" min="1" type="range" value="50" />
+            <span id="speed-value" class="text-xs font-mono text-slate-300 w-8">1x</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="time-display" class="text-xs text-slate-500">00:00 / 00:00</span>
         </div>
       </div>
 
-      <div class="pane output-pane">
-        <label for="typed-output">Playback</label>
-        <div class="stage-controls" aria-label="Playback size controls">
-          <div class="stage-control">
-            <label for="stage-width">Width</label>
-            <input id="stage-width" type="range" min="100" max="2600" step="10" value="680" />
-            <input id="stage-width-input" type="number" min="100" max="2600" step="10" value="680" aria-label="Stage width in pixels" />
-            <span id="stage-width-value" aria-live="polite">680 px</span>
-          </div>
-          <div class="stage-control">
-            <label for="stage-height">Height</label>
-            <input id="stage-height" type="range" min="200" max="3000" step="10" value="260" />
-            <input id="stage-height-input" type="number" min="200" max="3000" step="10" value="260" aria-label="Stage height in pixels" />
-            <span id="stage-height-value" aria-live="polite">260 px</span>
-          </div>
-          <div class="stage-control">
-            <label for="height-reset">Reset Height</label>
-            <input id="height-reset" type="range" min="100" max="3200" step="25" value="2400" />
-            <input id="height-reset-input" type="number" min="100" max="3200" step="25" value="2400" aria-label="Automatic reset height in pixels" />
-            <span id="height-reset-value" aria-live="polite">2400 px</span>
-          </div>
-        </div>
-        <div class="code-stage" id="code-stage">
-          <div class="code-frame">
-            <pre id="typed-output" class="code-display">
-              <code id="typed-buffer" class="code-buffer" aria-hidden="true"></code>
-              <code id="typed-target" class="code-content hljs"></code>
-            </pre>
+      <!-- Playback Container - Main Canvas Area -->
+      <div id="playback-context" class="flex-1 relative overflow-hidden">
+        <div id="playback-stage" class="absolute inset-0 flex items-start justify-center p-8 bg-background-dark">
+        <!-- The "Terminal" Window -->
+          <div id="playback-container" class="relative w-full max-w-4xl mx-auto flex flex-col bg-[#1e1e1e] rounded-lg shadow-2xl border border-slate-700/50 overflow-hidden" style="max-height: 100%;">
+            <!-- Window Title Bar -->
+            <div class="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-black/20 shrink-0">
+              <div class="flex gap-2">
+                <div class="w-3 h-3 rounded-full bg-[#ff5f56]"></div>
+                <div class="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
+                <div class="w-3 h-3 rounded-full bg-[#27c93f]"></div>
+              </div>
+              <div id="playback-title" class="text-xs text-slate-400 font-medium font-sans" contenteditable="true" spellcheck="false" dir="ltr">code.js — bash</div>
+              <div class="w-10"></div>
+            </div>
+            <!-- Content - Code Frame for canvas rendering -->
+            <div class="code-frame flex-1" id="code-frame">
+              <div id="typed-target" class="font-mono text-sm leading-relaxed text-[#d4d4d4] whitespace-pre-wrap break-words hljs">
+                <!-- Canvas will be rendered here -->
+              </div>
+            </div>
           </div>
         </div>
-        <section class="compile-section" aria-labelledby="compile-heading">
-          <div class="compile-header">
-            <h2 id="compile-heading">Compilation Library</h2>
-            <button id="compile-gif" type="button">Compile &amp; Save</button>
-          </div>
-          <p class="compile-caption">Create a saved GIF without downloading it immediately. Compilations stay here until you remove them.</p>
-          <div id="compile-list" class="compile-list" aria-live="polite">
-            <p class="compile-empty">No compilations yet. Compile your first GIF to store it here.</p>
-          </div>
-        </section>
       </div>
-    </section>
-  </main>
+    </div>
+
+    <!-- Resize Handle: Playback/Settings -->
+    <div id="resize-handle-settings" class="w-1 bg-border-dark hover:bg-primary cursor-col-resize transition-colors relative group" title="Drag to resize">
+      <div class="absolute inset-y-0 -left-1 -right-1"></div>
+    </div>
+
+    <!-- Far Right: Settings Sidebar -->
+    <div id="settings-pane" class="bg-surface-dark border-l border-border-dark flex flex-col shrink-0 overflow-y-auto" style="width: 280px;">
+      <div class="p-4 border-b border-border-dark">
+        <h3 class="text-sm font-bold text-white uppercase tracking-wider">Configuration</h3>
+      </div>
+      <div class="p-4 space-y-6">
+        <!-- Appearance -->
+        <div class="space-y-4">
+          <label class="text-xs font-semibold text-slate-400 block">Appearance</label>
+          <div class="space-y-1">
+            <span class="text-xs text-slate-500">Color Theme</span>
+            <select id="theme-select" class="w-full bg-background-dark border border-border-dark rounded px-3 py-1.5 text-sm text-white focus:border-primary focus:ring-0">
+              <option value="panda">Panda</option>
+              <option value="midnight">Midnight</option>
+              <option value="sunset">Sunset</option>
+              <option value="forest">Forest</option>
+              <option value="ocean">Ocean</option>
+              <option value="crimson">Crimson</option>
+              <option value="mono">Mono</option>
+            </select>
+          </div>
+          <div class="space-y-1">
+            <span class="text-xs text-slate-500">Font Family</span>
+            <select id="font-select" class="w-full bg-background-dark border border-border-dark rounded px-3 py-1.5 text-sm text-white focus:border-primary focus:ring-0">
+              <option value="hack">Hack</option>
+              <option value="firacode">Fira Code</option>
+              <option value="sourcecodepro">Source Code Pro</option>
+              <option value="consolas">Consolas</option>
+            </select>
+          </div>
+          <div class="flex items-center justify-between pt-2">
+            <span class="text-sm text-slate-300">Line Numbers</span>
+            <button id="toggle-line-numbers" class="w-10 h-5 rounded-full bg-primary relative transition-colors focus:outline-none">
+              <span class="absolute right-1 top-1 w-3 h-3 bg-white rounded-full shadow-sm transition-transform"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Hidden helper elements -->
+  <div class="hidden">
+    <!-- Buttons -->
+    <button id="clear"></button>
+    <button id="compile-gif"></button>
+    <button id="playback-minimize"></button>
+    <button id="playback-maximize"></button>
+
+    <!-- Input elements -->
+    <input id="speed-input" type="number" />
+    <input id="fast-export-toggle" type="checkbox" />
+    <input id="gif-speed-multiplier" type="number" />
+    <input id="stage-width-input" type="number" />
+    <input id="stage-height-input" type="number" />
+    <input id="height-reset" type="range" />
+    <input id="height-reset-input" type="number" />
+
+    <!-- Display elements (hidden but referenced) -->
+    <span id="speed-value"></span>
+    <span id="stage-width-value"></span>
+    <span id="stage-height-value"></span>
+    <span id="height-reset-value"></span>
+
+    <!-- Language selector -->
+    <input id="language-input" list="language-options" />
+    <datalist id="language-options">
+      <option value="auto">Auto (detect)</option>
+      <option value="javascript">JavaScript</option>
+      <option value="typescript">TypeScript</option>
+      <option value="html">HTML</option>
+      <option value="css">CSS</option>
+      <option value="json">JSON</option>
+      <option value="python">Python</option>
+      <option value="java">Java</option>
+      <option value="csharp">C#</option>
+      <option value="cpp">C++</option>
+      <option value="go">Go</option>
+      <option value="php">PHP</option>
+      <option value="ruby">Ruby</option>
+      <option value="bash">Bash</option>
+      <option value="markdown">Markdown</option>
+      <option value="yaml">YAML</option>
+      <option value="sql">SQL</option>
+      <option value="plaintext">Plain text</option>
+    </datalist>
+
+    <!-- Typing/display buffers -->
+    <div id="typed-buffer"></div>
+    <div id="typed-target" class="hljs"></div>
+    
+    <!-- Status/export elements -->
+    <div id="export-status"></div>
+    <div id="compile-list"></div>
+  </div>
 
   <script src="https://unpkg.com/typed.js@2.1.0/dist/typed.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
@@ -138,6 +430,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/xml.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/css.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.js"></script>
-  <script src="main.js"></script>
+  <script src="main.js?v=20260219k"></script>
 </body>
 </html>

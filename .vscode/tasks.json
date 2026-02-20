@@ -1,0 +1,18 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "live-build: http.server",
+			"type": "shell",
+			"command": "C:/Users/abcde/OneDrive/Desktop/codes/VSapps/CodeTyperOUt/.venv/Scripts/python.exe",
+			"args": [
+				"-m",
+				"http.server",
+				"8000"
+			],
+			"isBackground": true,
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}
