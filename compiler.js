@@ -587,6 +587,7 @@
         const delay = sequence.frameDurations && Number.isFinite(sequence.frameDurations[frameIndex])
           ? sequence.frameDurations[frameIndex]
           : sequence.frameDelay;
+        // `gif.js` expects delays in milliseconds; pass the rounded ms value.
         gif.addFrame(frameCanvas, { delay: Math.max(MIN_FRAME_DELAY, Math.round(delay)), copy: true });
       });
       sequence.frames.length = 0;

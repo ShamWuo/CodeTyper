@@ -627,6 +627,14 @@
   const MAX_EXPORT_LENGTH = 12000;
   const GIF_WORKER = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js';
   const MIN_GIF_SPEED_MULTIPLIER = 0.1;
+  // Minimum encoder-friendly frame unit (ms). Some GIF players and encoders
+  // quantize frame delays to a coarse granularity (commonly 50ms). To ensure
+  // accurate timing we split requested delays into multiple hold-frames of
+  // this unit so the resulting encoded GIF duration approximates the target.
+  // Prefer the GIF logical delay unit (10ms) but use 10ms to improve
+  // fidelity across players; a smaller hold unit allows closer matching to
+  // playback timing.
+  const MIN_ENCODER_FRAME_MS = 10;
   const MAX_GIF_SPEED_MULTIPLIER = 5;
   const PREFERRED_LANGUAGES = ['javascript', 'typescript', 'xml', 'html', 'json', 'css', 'python', 'java', 'csharp', 'cpp', 'php', 'ruby', 'go', 'bash', 'markdown', 'yaml', 'sql'];
   const LANGUAGE_OPTIONS = [
@@ -1197,8 +1205,19 @@
     return Math.min(MAX_GIF_SPEED_MULTIPLIER, Math.max(MIN_GIF_SPEED_MULTIPLIER, value));
   };
 
-  const applyGifSpeedMultiplier = (value) => {
+  const parseGifSpeedMultiplierInput = (value) => {
+    if (value === '' || value === null || value === undefined) {
+      return 1;
+    }
     const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return 1;
+    }
+    return numeric;
+  };
+
+  const applyGifSpeedMultiplier = (value) => {
+    const numeric = parseGifSpeedMultiplierInput(value);
     const clamped = clampGifSpeedMultiplier(numeric);
     if (gifSpeedMultiplierInput && Number(gifSpeedMultiplierInput.value) !== clamped) {
       gifSpeedMultiplierInput.value = String(clamped);
@@ -1210,7 +1229,7 @@
     if (!gifSpeedMultiplierInput) {
       return 1;
     }
-    const numeric = Number(gifSpeedMultiplierInput.value);
+    const numeric = parseGifSpeedMultiplierInput(gifSpeedMultiplierInput.value);
     return clampGifSpeedMultiplier(numeric);
   };
 
@@ -2751,64 +2770,77 @@ greet('Creator');`;
       const gifSpeedMultiplier = applyGifSpeedMultiplier(gifSpeedMultiplierInput ? gifSpeedMultiplierInput.value : 1);
       const typedSpeed = Math.max(1, Math.round(baseTypedSpeed / Math.max(gifSpeedMultiplier, MIN_GIF_SPEED_MULTIPLIER)));
       const maxFrameCap = Math.max(2, fastMode ? Math.floor(STAGE_THEME.maxFrames * 0.55) : STAGE_THEME.maxFrames);
+      // Debugging info: expose chosen speeds so we can verify math in the wild.
+      console.debug('GIF export timing:', {
+        baseTypedSpeed,
+        gifSpeedMultiplier,
+        typedSpeed,
+        maxFrameCap,
+        fastMode,
+      });
       const qualitySetting = fastMode ? 20 : 10;
-      const charFrameCap = fastMode ? 12 : 6;
-      const baseCharsPerFrame = Math.floor((Math.max(typedSpeed, 24)) / 18);
-      const targetCharsPerFrame = exportContent.length
-        ? Math.max(1, Math.min(charFrameCap, baseCharsPerFrame || 1))
-        : 1;
-      const roughFrameNeed = exportContent.length ? Math.ceil(exportContent.length / targetCharsPerFrame) : 0;
-      const maxTypingFrames = exportContent.length
-        ? Math.max(
-            1,
-            Math.min(
-              Math.max(1, maxFrameCap - 1),
-              Math.ceil(roughFrameNeed / (fastMode ? 1.4 : 1)),
-            ),
-          )
-        : 0;
-      const estimatedFrames = Math.min(maxFrameCap, (maxTypingFrames || 0) + 1);
       const frameDelays = [];
-      let pauseCursor = 0;
+
+      const cumulativeTypingTimeline = [];
+      let timelineElapsed = 0;
+      let timelinePauseCursor = 0;
+      for (let visibleChars = 1; visibleChars <= exportContent.length; visibleChars += 1) {
+        timelineElapsed += typedSpeed;
+        while (timelinePauseCursor < waitPauses.length && waitPauses[timelinePauseCursor].index <= visibleChars) {
+          timelineElapsed += waitPauses[timelinePauseCursor].duration;
+          timelinePauseCursor += 1;
+        }
+        cumulativeTypingTimeline.push(timelineElapsed);
+      }
+
+      const totalTypingMs = cumulativeTypingTimeline.length
+        ? cumulativeTypingTimeline[cumulativeTypingTimeline.length - 1]
+        : 0;
+
+      const maxTypingFrames = Math.max(0, maxFrameCap - 1);
+      const gifTickMs = 10;
+      const adaptiveSampleMs = totalTypingMs > 0 && maxTypingFrames > 0
+        ? Math.max(gifTickMs, Math.ceil(totalTypingMs / maxTypingFrames / gifTickMs) * gifTickMs)
+        : gifTickMs;
+      const estimatedTypingFrames = totalTypingMs > 0
+        ? Math.max(1, Math.min(maxTypingFrames, Math.ceil(totalTypingMs / adaptiveSampleMs)))
+        : 0;
+      const estimatedFrames = Math.min(maxFrameCap, estimatedTypingFrames + 1);
+
+      const charsForElapsed = (elapsedMs) => {
+        if (!cumulativeTypingTimeline.length) {
+          return 0;
+        }
+        let low = 0;
+        let high = cumulativeTypingTimeline.length - 1;
+        while (low < high) {
+          const mid = Math.floor((low + high) / 2);
+          if (cumulativeTypingTimeline[mid] >= elapsedMs) {
+            high = mid;
+          } else {
+            low = mid + 1;
+          }
+        }
+        return Math.max(1, low + 1);
+      };
 
       let processedFrames = 0;
       let gif = null;
       const workerScript = await getWorkerScriptURL();
+      let lastRenderedChars = 0;
 
-      let previousSliceLength = 0;
-
-      for (let index = 0; index < exportContent.length && processedFrames < maxTypingFrames; ) {
-        const remainingChars = exportContent.length - index;
-        const framesRemaining = Math.max(1, maxTypingFrames - processedFrames);
-        const currentChunkSize = Math.max(1, Math.ceil(remainingChars / framesRemaining));
-        const nextIndex = Math.min(exportContent.length, index + currentChunkSize);
-        const slice = exportContent.slice(0, nextIndex);
+      for (let frameIndex = 0; frameIndex < estimatedTypingFrames && processedFrames < maxTypingFrames; frameIndex += 1) {
+        const frameStartMs = frameIndex * adaptiveSampleMs;
+        const frameEndTargetMs = Math.min(totalTypingMs, frameStartMs + adaptiveSampleMs);
+        const visibleChars = charsForElapsed(Math.max(1, frameEndTargetMs));
+        const slice = exportContent.slice(0, visibleChars);
         const html = highlightCode(slice) || '';
-        const isFinalChunk = nextIndex >= exportContent.length;
+        const isFinalChunk = visibleChars >= exportContent.length;
         const canvas = renderCanvasFrame(renderer, html, { showCursor: !isFinalChunk });
-        const charsTypedThisFrame = Math.max(1, nextIndex - previousSliceLength);
-        previousSliceLength = nextIndex;
+        lastRenderedChars = visibleChars;
 
-        let delay = typedSpeed * Math.max(1, charsTypedThisFrame);
-        if (!isFinalChunk) {
-          const MIN_DELAY_MS = Math.max(10, Math.floor(typedSpeed * (fastMode ? 0.4 : 0.55)));
-          const MAX_DELAY_MS = Math.max(
-            typedSpeed * currentChunkSize * (fastMode ? 1.1 : 1.35),
-            typedSpeed,
-          );
-          delay = Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, delay));
-        }
-
-        let accumulatedPause = 0;
-        while (pauseCursor < waitPauses.length && waitPauses[pauseCursor].index <= nextIndex) {
-          accumulatedPause += waitPauses[pauseCursor].duration;
-          pauseCursor += 1;
-        }
-        if (accumulatedPause > 0) {
-          delay += accumulatedPause;
-        }
-
-        frameDelays.push(delay);
+        const totalDelay = Math.max(gifTickMs, Math.round(frameEndTargetMs - frameStartMs));
+        frameDelays.push(totalDelay);
 
         if (!gif) {
           gif = new GIF({
@@ -2820,32 +2852,32 @@ greet('Creator');`;
           });
         }
 
-        // Add the main typing frame first
-        gif.addFrame(canvas, { delay, copy: true });
-
-        // Split any pause portion of this frame into multiple small-hold frames so that
-        // GIF players render long waits smoothly (many players behave poorly with one very
-        // large-delay frame). We treat the typing-like portion of `delay` as the first
-        // frame we already added, and the remainder (pausePart) is split into smaller
-        // hold frames of target size.
+        // Add one GIF frame per visual state and quantize delay to GIF ticks
+        // (centiseconds). This avoids duplicate hold-frames that can look choppy.
         try {
-          const typingPart = Math.max(0, Math.min(delay, Math.max(10, typedSpeed)));
-          const pausePart = Math.max(0, delay - typingPart);
-          if (pausePart > 0) {
-            const targetHoldUnit = 100; // ms per hold-frame (tunable)
-            const holdCount = Math.max(1, Math.ceil(pausePart / targetHoldUnit));
-            const perHold = Math.max(1, Math.round(pausePart / holdCount));
-            for (let h = 0; h < holdCount; h += 1) {
-              gif.addFrame(canvas, { delay: perHold, copy: true });
+          const totalDelay = Math.max(gifTickMs, Math.round(frameEndTargetMs - frameStartMs));
+          const gifDelayCs = Math.max(1, Math.round(totalDelay / 10));
+          gif.addFrame(canvas, { delay: gifDelayCs, copy: true });
+            // Debug: log first few frames to verify computed delays
+            if (processedFrames < 6) {
+              console.debug('export frame', processedFrames + 1, {
+                visibleChars,
+                totalDelay,
+                gifDelayCs,
+                adaptiveSampleMs,
+              });
             }
-          }
         } catch (e) {
-          // If anything goes wrong, fall back to the single-frame approach already added.
-          // Swallow errors to avoid breaking export.
+          // Fallback: add a single frame with typingDelay if splitting fails.
+          try {
+            const fallbackDelayCs = Math.max(1, Math.round(Math.max(gifTickMs, totalDelay) / 10));
+            gif.addFrame(canvas, { delay: fallbackDelayCs, copy: true });
+          } catch (err) {
+            // Swallow - we don't want the exporter to crash for a single frame error.
+          }
         }
 
         processedFrames += 1;
-        index = nextIndex;
 
         if (estimatedFrames > 0 && processedFrames % 5 === 0) {
           const percent = Math.min(100, Math.round((processedFrames / estimatedFrames) * 100));
@@ -2861,9 +2893,6 @@ greet('Creator');`;
           await new Promise((resolve) => setTimeout(resolve, 0));
         }
 
-        if (processedFrames >= maxTypingFrames) {
-          break;
-        }
       }
 
       if (processedFrames < maxFrameCap) {
@@ -2873,12 +2902,10 @@ greet('Creator');`;
         const MAX_FINAL_DELAY = fastMode ? 2500 : 4000;
         const averageDelay = frameDelays.length
           ? frameDelays.reduce((sum, value) => sum + value, 0) / frameDelays.length
-          : typedSpeed * Math.max(1, targetCharsPerFrame);
-        let remainingPause = 0;
-        while (pauseCursor < waitPauses.length) {
-          remainingPause += waitPauses[pauseCursor].duration;
-          pauseCursor += 1;
-        }
+          : typedSpeed;
+        const remainingPause = waitPauses
+          .filter((pause) => pause.index > lastRenderedChars)
+          .reduce((sum, pause) => sum + pause.duration, 0);
         const finalDelay = Math.max(
           MIN_FINAL_DELAY,
           Math.min(
@@ -2898,9 +2925,22 @@ greet('Creator');`;
             height: finalCanvas.height,
           });
         }
-        gif.addFrame(finalCanvas, { delay: finalDelay, copy: true });
-        processedFrames += 1;
-        frameDelays.push(finalDelay);
+        try {
+          const totalFinal = Math.max(1, Math.round(finalDelay));
+          const finalDelayCs = Math.max(1, Math.round(totalFinal / 10));
+          gif.addFrame(finalCanvas, { delay: finalDelayCs, copy: true });
+          processedFrames += 1;
+          frameDelays.push(finalDelay);
+        } catch (e) {
+          try {
+            const finalFallbackDelayCs = Math.max(1, Math.round(Math.max(1, finalDelay) / 10));
+            gif.addFrame(finalCanvas, { delay: finalFallbackDelayCs, copy: true });
+            processedFrames += 1;
+            frameDelays.push(finalDelay);
+          } catch (err) {
+            // swallow
+          }
+        }
       }
 
       if (!gif) {
@@ -2909,6 +2949,9 @@ greet('Creator');`;
       }
 
       setStatus(`Finalizing ${label}…`);
+      const totalMs = frameDelays.reduce((s, v) => s + v, 0);
+      const totalGifCs = Math.round(totalMs / 10);
+      console.debug('export summary', { processedFrames, estimatedFrames, frameDelaysLength: frameDelays.length, totalMs, totalGifCs });
       setExportProgress(72, 'Encoding');
 
       const blob = await renderGif(gif, {
