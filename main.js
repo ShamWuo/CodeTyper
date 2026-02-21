@@ -2059,9 +2059,13 @@
     return wrapped;
   };
 
-  const renderCanvasFrame = (renderer, highlightedHtml, { showCursor = false } = {}) => {
+  const renderCanvasFrame = (renderer, highlightedHtml, { showCursor = false, plainText = null } = {}) => {
     const { canvas, ctx, scale } = renderer;
-    const lines = parseHighlighted(highlightedHtml);
+    const lines = typeof plainText === 'string'
+      ? plainText.split('\n').map((line) => (line.length
+        ? [{ text: line, color: STAGE_THEME.textColor, classes: [] }]
+        : []))
+      : parseHighlighted(highlightedHtml);
 
     if (showCursor) {
       const lastLine = lines[lines.length - 1] || [];
@@ -2793,6 +2797,20 @@ greet('Creator');`;
         };
       });
 
+      setStatus(`Preparing ${label} frames…`);
+      setExportProgress(10, 'Preparing');
+
+      const highlightedFrames = new Array(estimatedTypingFrames);
+      for (let frameIndex = 0; frameIndex < estimatedTypingFrames; frameIndex += 1) {
+        const visibleChars = Math.min(exportContent.length, frameIndex + 1);
+        highlightedFrames[frameIndex] = highlightCode(exportContent.slice(0, visibleChars)) || '';
+        if (frameIndex > 0 && frameIndex % 80 === 0) {
+          const prepProgress = 10 + Math.min(20, Math.round((frameIndex / Math.max(1, estimatedTypingFrames)) * 20));
+          setExportProgress(prepProgress, 'Preparing');
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+      }
+
       recorder.start(200);
 
       const drawFrame = (frameCanvas) => {
@@ -2805,7 +2823,7 @@ greet('Creator');`;
 
       const initialVisibleChars = exportContent.length > 0 ? 1 : 0;
       if (initialVisibleChars > 0) {
-        const firstFrameHtml = highlightCode(exportContent.slice(0, initialVisibleChars)) || '';
+        const firstFrameHtml = highlightedFrames[0] || '';
         const firstFrameCanvas = renderCanvasFrame(renderer, firstFrameHtml, { showCursor: exportContent.length > 1 });
         drawFrame(firstFrameCanvas);
       }
@@ -2816,7 +2834,7 @@ greet('Creator');`;
       for (let frameIndex = initialVisibleChars; frameIndex < estimatedTypingFrames; frameIndex += 1) {
         const frameStartedAt = performance.now();
         const visibleChars = Math.min(exportContent.length, frameIndex + 1);
-        const frameHtml = highlightCode(exportContent.slice(0, visibleChars)) || '';
+        const frameHtml = highlightedFrames[frameIndex] || '';
         const frameCanvas = renderCanvasFrame(renderer, frameHtml, { showCursor: visibleChars < exportContent.length });
 
         drawFrame(frameCanvas);
@@ -2824,7 +2842,7 @@ greet('Creator');`;
         processedFrames += 1;
 
         if (estimatedFrames > 0 && processedFrames % 25 === 0) {
-          const prepProgress = Math.min(85, Math.round((processedFrames / estimatedFrames) * 85));
+          const prepProgress = 30 + Math.min(55, Math.round((processedFrames / estimatedFrames) * 55));
           setExportProgress(prepProgress, 'Recording');
           const percent = Math.min(100, Math.round((processedFrames / estimatedFrames) * 100));
           setStatus(`Rendering ${label}… ${percent}% (${processedFrames}/${estimatedFrames})`);
@@ -2838,7 +2856,7 @@ greet('Creator');`;
         }
       }
 
-      const finalHtml = highlightCode(exportContent) || '';
+      const finalHtml = highlightedFrames.length ? highlightedFrames[highlightedFrames.length - 1] : (highlightCode(exportContent) || '');
       const finalCanvas = renderCanvasFrame(renderer, finalHtml, { showCursor: false });
       drawFrame(finalCanvas);
       await flushRecordedFrame();
