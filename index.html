@@ -213,9 +213,9 @@
       <button id="settings-btn" class="flex items-center justify-center overflow-hidden rounded-lg h-9 bg-surface-dark hover:bg-border-dark transition-colors text-slate-300 gap-2 text-sm font-bold px-3 border border-border-dark">
         <span class="material-symbols-outlined text-[18px]">settings</span>
       </button>
-      <button id="export-gif" class="flex items-center justify-center overflow-hidden rounded-lg h-9 px-4 bg-primary hover:bg-blue-600 transition-colors text-white text-sm font-bold shadow-lg shadow-blue-900/20">
-        <span class="material-symbols-outlined text-[18px] mr-2">download</span>
-        <span class="truncate">Export GIF</span>
+      <button id="export-webm" class="flex items-center justify-center overflow-hidden rounded-lg h-9 px-4 bg-primary hover:bg-blue-600 transition-colors text-white text-sm font-bold shadow-lg shadow-blue-900/20">
+        <span class="material-symbols-outlined text-[18px] mr-2">movie</span>
+        <span class="truncate">Export WebM</span>
       </button>
     </div>
   </header>
@@ -355,13 +355,6 @@ init();</textarea>
               <option value="sourcecodepro">Source Code Pro</option>
               <option value="consolas">Consolas</option>
             </select>
-          </div>
-          <div class="space-y-1">
-            <span class="text-xs text-slate-500">GIF Speed</span>
-            <div class="flex items-center gap-2">
-              <input id="gif-speed-multiplier" type="number" step="0.1" min="0.1" max="5" value="1" class="w-28 bg-background-dark border border-border-dark rounded px-2 py-1 text-sm text-white focus:border-primary focus:ring-0" />
-              <span class="text-xs text-slate-400">multiplier (0.1–5)</span>
-            </div>
           </div>
           <div class="flex items-center justify-between pt-2">
             <span class="text-sm text-slate-300">Line Numbers</span>

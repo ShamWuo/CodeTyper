@@ -2,9 +2,8 @@
   const textarea = document.getElementById('code-input');
   const runButton = document.getElementById('run');
   const clearButton = document.getElementById('clear');
-  const exportButton = document.getElementById('export-gif');
+  const exportButton = document.getElementById('export-webm');
   const fastExportToggle = document.getElementById('fast-export-toggle');
-  const gifSpeedMultiplierInput = document.getElementById('gif-speed-multiplier');
   const speedSlider = document.getElementById('speed');
   const speedInput = document.getElementById('speed-input');
   const speedValue = document.getElementById('speed-value');
@@ -626,7 +625,6 @@
   const PLACEHOLDER = '// Paste code and hit Play Typing.';
   const MAX_EXPORT_LENGTH = 12000;
   const GIF_WORKER = 'https://cdn.jsdelivr.net/npm/gif.js@0.2.0/dist/gif.worker.js';
-  const MIN_GIF_SPEED_MULTIPLIER = 0.1;
   // Minimum encoder-friendly frame unit (ms). Some GIF players and encoders
   // quantize frame delays to a coarse granularity (commonly 50ms). To ensure
   // accurate timing we split requested delays into multiple hold-frames of
@@ -635,7 +633,6 @@
   // fidelity across players; a smaller hold unit allows closer matching to
   // playback timing.
   const MIN_ENCODER_FRAME_MS = 10;
-  const MAX_GIF_SPEED_MULTIPLIER = 5;
   const PREFERRED_LANGUAGES = ['javascript', 'typescript', 'xml', 'html', 'json', 'css', 'python', 'java', 'csharp', 'cpp', 'php', 'ruby', 'go', 'bash', 'markdown', 'yaml', 'sql'];
   const LANGUAGE_OPTIONS = [
     { value: 'auto', aliases: ['auto', 'detect', 'default', 'auto (detect)'] },
@@ -990,7 +987,7 @@
     }
     const placeholder = document.createElement('p');
     placeholder.className = 'compile-empty';
-    placeholder.textContent = 'No compilations yet. Compile your first GIF to store it here.';
+    placeholder.textContent = 'No compilations yet. Compile your first WebM to store it here.';
     compilationList.appendChild(placeholder);
   };
 
@@ -1031,10 +1028,14 @@
     const card = document.createElement('article');
     card.className = 'compile-card';
 
-    const thumb = document.createElement('img');
+    const thumb = document.createElement('video');
     thumb.className = 'compile-thumb';
     thumb.src = url;
     thumb.alt = `Compilation ${String(compilationCount).padStart(2, '0')}`;
+    thumb.muted = true;
+    thumb.loop = true;
+    thumb.autoplay = true;
+    thumb.playsInline = true;
 
     const info = document.createElement('div');
     info.className = 'compile-info';
@@ -1055,7 +1056,7 @@
     const downloadLink = document.createElement('a');
     downloadLink.className = 'compile-download';
     downloadLink.href = url;
-    downloadLink.download = `compilation-${String(compilationCount).padStart(2, '0')}.gif`;
+    downloadLink.download = `compilation-${String(compilationCount).padStart(2, '0')}.webm`;
     downloadLink.textContent = 'Download';
 
     const removeButton = document.createElement('button');
@@ -1196,41 +1197,6 @@
     if (restart && typedInstance && clamped !== previous) {
       startTyping();
     }
-  };
-
-  const clampGifSpeedMultiplier = (value) => {
-    if (!Number.isFinite(value)) {
-      return 1;
-    }
-    return Math.min(MAX_GIF_SPEED_MULTIPLIER, Math.max(MIN_GIF_SPEED_MULTIPLIER, value));
-  };
-
-  const parseGifSpeedMultiplierInput = (value) => {
-    if (value === '' || value === null || value === undefined) {
-      return 1;
-    }
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) {
-      return 1;
-    }
-    return numeric;
-  };
-
-  const applyGifSpeedMultiplier = (value) => {
-    const numeric = parseGifSpeedMultiplierInput(value);
-    const clamped = clampGifSpeedMultiplier(numeric);
-    if (gifSpeedMultiplierInput && Number(gifSpeedMultiplierInput.value) !== clamped) {
-      gifSpeedMultiplierInput.value = String(clamped);
-    }
-    return clamped;
-  };
-
-  const getGifSpeedMultiplier = () => {
-    if (!gifSpeedMultiplierInput) {
-      return 1;
-    }
-    const numeric = parseGifSpeedMultiplierInput(gifSpeedMultiplierInput.value);
-    return clampGifSpeedMultiplier(numeric);
   };
 
   const applyStageWidth = (value) => {
@@ -2227,10 +2193,10 @@ greet('Creator');`;
   const exportButtonBaseLabel = (() => {
     const labelTarget = getExportButtonLabelTarget();
     if (!labelTarget) {
-      return 'Export GIF';
+      return 'Export WebM';
     }
     const text = (labelTarget.textContent || '').trim();
-    return text || 'Export GIF';
+    return text || 'Export WebM';
   })();
 
   const setExportProgress = (percent = 0, phase = 'Exporting') => {
@@ -2725,9 +2691,6 @@ greet('Creator');`;
     if (fastExportToggle) {
       fastExportToggle.disabled = disabled;
     }
-    if (gifSpeedMultiplierInput) {
-      gifSpeedMultiplierInput.disabled = disabled;
-    }
     textarea.readOnly = disabled;
   };
 
@@ -2743,6 +2706,194 @@ greet('Creator');`;
     gif.render();
   });
 
+  const pickWebmMimeType = () => {
+    if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
+      return '';
+    }
+    const preferred = [
+      'video/webm;codecs=vp8',
+      'video/webm;codecs=vp9',
+      'video/webm',
+    ];
+    return preferred.find((mime) => MediaRecorder.isTypeSupported(mime)) || '';
+  };
+
+  const exportToWebM = async (content, options = {}) => {
+    if (typeof MediaRecorder === 'undefined') {
+      setStatus('WebM export is not supported in this browser.');
+      return;
+    }
+
+    const {
+      download = true,
+      label = 'WebM',
+      filename = 'code-typing.webm',
+      successMessage,
+      onComplete,
+    } = options;
+
+    try {
+      isExporting = true;
+      toggleControls(true);
+      setStatus(`Rendering ${label}…`);
+      setExportProgress(0, 'Preparing');
+
+      const { content: exportContent } = prepareContentForExport(content);
+      const renderer = createCanvasRenderer();
+      const fastMode = Boolean(fastExportToggle && fastExportToggle.checked);
+      const baseTypedSpeed = Math.max(1, Number(speedSlider.value));
+      const typedSpeed = baseTypedSpeed;
+      const hardFrameLimit = 30000;
+      const targetFrameMs = fastMode ? 20 : 16;
+
+      const estimatedTypingFrames = exportContent.length > 0
+        ? Math.max(1, Math.min(hardFrameLimit, exportContent.length))
+        : 0;
+      const estimatedFrames = estimatedTypingFrames + 1;
+
+      const initialCanvas = renderCanvasFrame(renderer, highlightCode('') || '', { showCursor: true });
+      const outputCanvas = document.createElement('canvas');
+      outputCanvas.width = initialCanvas.width;
+      outputCanvas.height = initialCanvas.height;
+      const outputContext = outputCanvas.getContext('2d');
+      if (!outputContext) {
+        setStatus('Could not initialize video export canvas.');
+        return;
+      }
+
+      const captureFps = Math.max(24, Math.round(1000 / targetFrameMs));
+      const stream = outputCanvas.captureStream(captureFps);
+      const streamTrack = stream.getVideoTracks()[0];
+      const mimeType = pickWebmMimeType();
+      const recorderOptions = mimeType
+        ? { mimeType, videoBitsPerSecond: fastMode ? 1200000 : 1800000 }
+        : { videoBitsPerSecond: fastMode ? 1200000 : 1800000 };
+
+      const chunks = [];
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, recorderOptions);
+      } catch (error) {
+        setStatus('WebM export failed to initialize encoder.');
+        return;
+      }
+
+      const donePromise = new Promise((resolve, reject) => {
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        };
+        recorder.onerror = (event) => {
+          reject(event && event.error ? event.error : new Error('WebM encoding failed.'));
+        };
+        recorder.onstop = () => {
+          const blobType = mimeType || 'video/webm';
+          resolve(new Blob(chunks, { type: blobType }));
+        };
+      });
+
+      recorder.start(200);
+
+      const drawFrame = (frameCanvas) => {
+        outputContext.clearRect(0, 0, outputCanvas.width, outputCanvas.height);
+        outputContext.drawImage(frameCanvas, 0, 0);
+      };
+      const flushRecordedFrame = () => new Promise((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+
+      const initialVisibleChars = exportContent.length > 0 ? 1 : 0;
+      if (initialVisibleChars > 0) {
+        const firstFrameHtml = highlightCode(exportContent.slice(0, initialVisibleChars)) || '';
+        const firstFrameCanvas = renderCanvasFrame(renderer, firstFrameHtml, { showCursor: exportContent.length > 1 });
+        drawFrame(firstFrameCanvas);
+      }
+
+      let processedFrames = 0;
+      let nextFrameAt = performance.now();
+
+      for (let frameIndex = initialVisibleChars; frameIndex < estimatedTypingFrames; frameIndex += 1) {
+        const frameStartedAt = performance.now();
+        const visibleChars = Math.min(exportContent.length, frameIndex + 1);
+        const frameHtml = highlightCode(exportContent.slice(0, visibleChars)) || '';
+        const frameCanvas = renderCanvasFrame(renderer, frameHtml, { showCursor: visibleChars < exportContent.length });
+
+        drawFrame(frameCanvas);
+        await flushRecordedFrame();
+        processedFrames += 1;
+
+        if (estimatedFrames > 0 && processedFrames % 25 === 0) {
+          const prepProgress = Math.min(85, Math.round((processedFrames / estimatedFrames) * 85));
+          setExportProgress(prepProgress, 'Recording');
+          const percent = Math.min(100, Math.round((processedFrames / estimatedFrames) * 100));
+          setStatus(`Rendering ${label}… ${percent}% (${processedFrames}/${estimatedFrames})`);
+        }
+
+        const frameDelay = Math.max(targetFrameMs, typedSpeed);
+        nextFrameAt = Math.max(nextFrameAt + frameDelay, frameStartedAt + frameDelay);
+        const waitMs = Math.max(0, nextFrameAt - performance.now());
+        if (waitMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+      }
+
+      const finalHtml = highlightCode(exportContent) || '';
+      const finalCanvas = renderCanvasFrame(renderer, finalHtml, { showCursor: false });
+      drawFrame(finalCanvas);
+      await flushRecordedFrame();
+
+      const finalDelay = Math.max(fastMode ? 350 : 600, Math.round(typedSpeed * (fastMode ? 5 : 8)));
+      await new Promise((resolve) => setTimeout(resolve, finalDelay));
+
+      setExportProgress(90, 'Finalizing');
+      recorder.stop();
+
+      const blob = await donePromise;
+
+      const tracks = stream.getTracks();
+      tracks.forEach((track) => track.stop());
+      const url = URL.createObjectURL(blob);
+
+      setExportProgress(100, 'Done');
+
+      if (download) {
+        const autoLink = document.createElement('a');
+        autoLink.href = url;
+        autoLink.download = filename;
+        document.body.appendChild(autoLink);
+        autoLink.click();
+        autoLink.remove();
+
+        setStatus(
+          `${label} ready! <a href="${url}" download="${filename}">Click here if the download didn’t start.</a>`,
+          { html: true },
+        );
+
+        setTimeout(() => {
+          setStatus('');
+          URL.revokeObjectURL(url);
+        }, 60000);
+      } else {
+        if (typeof onComplete === 'function') {
+          onComplete(blob, url);
+        }
+        setStatus(successMessage || `${label} added to your library.`);
+        setTimeout(() => {
+          setStatus('');
+        }, 8000);
+      }
+    } catch (error) {
+      console.error(error);
+      setStatus(`${label} export failed: ${error && error.message ? error.message : 'unknown error'}.`);
+    } finally {
+      toggleControls(false);
+      textarea.readOnly = false;
+      isExporting = false;
+      resetExportProgress();
+    }
+  };
+
   const exportToGif = async (content, options = {}) => {
     if (typeof GIF === 'undefined') {
       setStatus('GIF encoder failed to load. Refresh and try again.');
@@ -2751,8 +2902,8 @@ greet('Creator');`;
 
     const {
       download = true,
-      label = 'GIF',
-      filename = 'code-typing.gif',
+      label = 'WebM',
+      filename = 'code-typing.webm',
       successMessage,
       onComplete,
     } = options;
@@ -2771,7 +2922,7 @@ greet('Creator');`;
       const typedSpeed = Math.max(1, Math.round(baseTypedSpeed / Math.max(gifSpeedMultiplier, MIN_GIF_SPEED_MULTIPLIER)));
       const maxFrameCap = Math.max(2, fastMode ? Math.floor(STAGE_THEME.maxFrames * 0.55) : STAGE_THEME.maxFrames);
       // Debugging info: expose chosen speeds so we can verify math in the wild.
-      console.debug('GIF export timing:', {
+      console.debug('Export timing:', {
         baseTypedSpeed,
         gifSpeedMultiplier,
         typedSpeed,
@@ -3180,22 +3331,6 @@ greet('Creator');`;
     });
   }
 
-  if (gifSpeedMultiplierInput) {
-    gifSpeedMultiplierInput.addEventListener('change', (event) => {
-      applyGifSpeedMultiplier(event.target.value);
-    });
-    gifSpeedMultiplierInput.addEventListener('blur', () => {
-      applyGifSpeedMultiplier(gifSpeedMultiplierInput.value);
-    });
-    gifSpeedMultiplierInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        applyGifSpeedMultiplier(gifSpeedMultiplierInput.value);
-        gifSpeedMultiplierInput.blur();
-      }
-    });
-  }
-
   exportButton.addEventListener('click', async () => {
     if (isExporting) {
       return;
@@ -3204,16 +3339,16 @@ greet('Creator');`;
     const content = getNormalizedContent();
 
     if (content === PLACEHOLDER) {
-      setStatus('Paste code before exporting a GIF.');
+      setStatus('Paste code before exporting a WebM.');
       return;
     }
 
     if (content.length > MAX_EXPORT_LENGTH) {
-      setStatus(`Trim code to ${MAX_EXPORT_LENGTH} characters or fewer for GIF export.`);
+      setStatus(`Trim code to ${MAX_EXPORT_LENGTH} characters or fewer for WebM export.`);
       return;
     }
 
-    await exportToGif(content);
+    await exportToWebM(content);
   });
 
   if (compileButton) {
@@ -3225,19 +3360,20 @@ greet('Creator');`;
       const content = getNormalizedContent();
 
       if (content === PLACEHOLDER) {
-        setStatus('Paste code before compiling a GIF.');
+        setStatus('Paste code before compiling a WebM.');
         return;
       }
 
       if (content.length > MAX_EXPORT_LENGTH) {
-        setStatus(`Trim code to ${MAX_EXPORT_LENGTH} characters or fewer for GIF export.`);
+        setStatus(`Trim code to ${MAX_EXPORT_LENGTH} characters or fewer for WebM export.`);
         return;
       }
 
-      await exportToGif(content, {
+      await exportToWebM(content, {
         download: false,
-        label: 'Compilation GIF',
-        successMessage: 'Compilation added to the library.',
+        label: 'Compilation WebM',
+        filename: `compilation-${Date.now()}.webm`,
+        successMessage: 'Compilation WebM added to the library.',
         onComplete: (blob, url) => addCompilationCard(blob, url),
       });
     });
@@ -3278,10 +3414,6 @@ greet('Creator');`;
 
   if (languageInput) {
     setManualLanguage(languageInput.value);
-  }
-
-  if (gifSpeedMultiplierInput) {
-    applyGifSpeedMultiplier(gifSpeedMultiplierInput.value);
   }
 
   setTimeDisplay(0, 0);
